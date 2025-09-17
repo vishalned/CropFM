@@ -1,0 +1,14 @@
+name: cropfm
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - earthengine-api>=0.1.380
+    - numpy==2.3.3
+    - pandas==2.3.2
+    - geopandas==1.1.1
+    - tqdm==4.67.1
+    - shapely==2.1.1
+    
