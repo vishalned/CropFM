@@ -1,1 +1,6 @@
 *.geojson
+*.json
+*.txt
+*__pycache__/
+
+slurm_logs/
