@@ -11,7 +11,7 @@ modalities: # what modalities to download
 ###### Modality specific configs ######
 sentinel2:
   log_level: *log_level
-  name: sentinel2
+  name: sentinel2 # any text to identify the modality
   bands:
     - B1
     - B2

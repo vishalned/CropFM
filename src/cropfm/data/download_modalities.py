@@ -14,7 +14,7 @@ def main(cfg: DictConfig):
     ee.Initialize()
     log.setLevel(cfg.log_level)
     log.debug(f'CFG: {cfg}')
-
+    log.info(f'Downloading modalities: {cfg.modalities}')
     # sample point
     point = ee.Geometry.Point([10.659969917504554, 50.2844142988367])
 
