@@ -1,3 +1,7 @@
+'''
+This script creates grids for a specific country.
+'''
+
 import ee
 import json
 import os
