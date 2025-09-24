@@ -1,4 +1,16 @@
+log_level: &log_level DEBUG
+start_date: &start_date 2020-03-01
+end_date: &end_date 2021-12-31
+
+modalities: # what modalities to download
+  - sentinel2
+  - fapar
+
+
+
+###### Modality specific configs ######
 sentinel2:
+  log_level: *log_level
   name: sentinel2
   bands:
     - B1
@@ -18,7 +30,18 @@ sentinel2:
     - QA60
 
   date_range:
-    start_date: 2020-03-01
-    end_date: 2021-12-31
+    start_date: *start_date
+    end_date: *end_date
 
   cloud_cover_threshold: 50 # less than 50% cloud cover
+
+fapar:
+  log_level: *log_level
+  name: fapar
+  variables:
+    - FAPAR
+    - LAI
+
+  date_range:
+    start_date: *start_date
+    end_date: *end_date

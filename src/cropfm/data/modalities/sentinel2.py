@@ -1,6 +1,9 @@
 import ee
 import pandas as pd
+import logging
 from omegaconf import DictConfig, OmegaConf
+
+log = logging.getLogger(__name__)
 
 def sentinel2(
     cfg: DictConfig,
@@ -9,6 +12,7 @@ def sentinel2(
 ) -> pd.DataFrame:
     '''
     A function to extract Sentinel-2 data from the Earth Engine API.
+    S2 - 10m resolution
 
     Args:
         cfg: The configuration for the Sentinel-2 data. (DictConfig)
@@ -18,7 +22,9 @@ def sentinel2(
     Returns:
         pd.DataFrame: The extracted data.
     '''
+    log.setLevel(cfg.log_level)
 
+    log.debug("Starting Sentinel-2 extraction")
     # Define date range
     start_date = cfg.date_range.start_date
     end_date = cfg.date_range.end_date
@@ -44,14 +50,14 @@ def sentinel2(
         
         def add_metadata(feature):
             return feature.set('date', image.date().format('YYYY-MM-dd')) \
-                        .set('satellite', 'S2')
+                        .set('modality', cfg.name)
         
         return pixel_value.map(add_metadata)
 
     s2_samples = ee.ImageCollection(s2_collection).map(sample_s2_image).flatten()
 
     # Print S2 sample information
-    # print(f'S2 pixel samples: {s2_samples.getInfo()}')
+    log.debug('Number of Sentinel-2 samples: %s', s2_samples.size().getInfo())
 
     # Convert S2 samples to pandas DataFrame
     s2_samples_data = s2_samples.getInfo()
@@ -63,6 +69,8 @@ def sentinel2(
         s2_data_rows.append(row)
 
     s2_df = pd.DataFrame(s2_data_rows)
+
+    log.debug(f"Successfully extracted {len(s2_df)} Sentinel-2 observations")
 
     return s2_df
 
