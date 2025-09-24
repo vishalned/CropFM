@@ -45,7 +45,7 @@ echo "=================================================="
 cd /lustre/scratch/WUR/AIN/nedun001/CropFM
 
 # Run the point sampling for this batch
-srun python -u src/cropfm/grids/sample_points_from_grids.py \
+srun python -u src/cropfm/grids/sample_points.py \
     --input data/europe_grids_5km2.geojson \
     --points-per-grid $POINTS_PER_GRID \
     --start-idx $START_IDX \

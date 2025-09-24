@@ -1,5 +1,6 @@
 '''
 This script creates grids for a specific country.
+Run this script using the slurm_scripts/run_country_grids_array.sh script.
 '''
 
 import ee
@@ -15,7 +16,10 @@ from cropfm.utils.country_continent_mapping import get_continent
 ee.Initialize()
 
 def transform_to_geographic(collection):
-    """Transform collection from EPSG:3857 to EPSG:4326 for export"""
+    """
+        Transform collection from EPSG:3857 to EPSG:4326 for export.
+
+    """
     def transform_feature(feature):
         # Transform geometry to EPSG:4326
         transformed_geom = feature.geometry().transform('EPSG:4326', 1)  # 1m error tolerance
@@ -25,7 +29,7 @@ def transform_to_geographic(collection):
 
 def create_grid_for_country(country_name):
     """
-    Create grid for a specific country with country and continent information
+        Create grid for a specific country with country and continent information
     """
     
     # Configuration parameters

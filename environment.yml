@@ -11,4 +11,6 @@ dependencies:
     - geopandas==1.1.1
     - tqdm==4.67.1
     - shapely==2.1.1
+    - hydra-core==1.3.2
+    
     
