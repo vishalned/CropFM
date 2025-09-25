@@ -3,9 +3,11 @@ import ee
 from omegaconf import DictConfig
 from cropfm.data.modalities import (
     sentinel2,
-    fapar
+    fapar,
+    soil
 )
 import logging
+import time
 
 log = logging.getLogger(__name__)
 
@@ -19,8 +21,10 @@ def main(cfg: DictConfig):
     point = ee.Geometry.Point([10.659969917504554, 50.2844142988367])
 
     for modality in cfg.modalities:
+        start_time = time.time()
         modality_df = eval(modality)(cfg[modality], point, log_level=cfg.log_level)
-        print(modality_df)
+        log.info(f'Time taken: {time.time() - start_time} seconds')
+        # print(modality_df)
 
 
 

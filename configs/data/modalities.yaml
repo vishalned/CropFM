@@ -1,11 +1,12 @@
+## GLOBALS
 log_level: &log_level DEBUG
 start_date: &start_date 2020-03-01
 end_date: &end_date 2021-12-31
 
-modalities: # what modalities to download
+modalities: # what modalities to download, name must match the function name in the modalities.py file
   - sentinel2
   - fapar
-
+  - soil
 
 
 ###### Modality specific configs ######
@@ -45,3 +46,17 @@ fapar:
   date_range:
     start_date: *start_date
     end_date: *end_date
+
+soil:
+  log_level: *log_level
+  name: soil
+  variables:
+    - clay      # Clay content (%)
+    - nitrogen  # Total nitrogen (g/kg)
+    - phh2o     # Soil pH
+    - soc       # Soil organic carbon (g/kg)
+  
+  depth_layers: # 6 total layers, we'll use 3
+    - 0-5cm     # Surface layer
+    - 5-15cm    # Shallow subsurface
+    - 15-30cm   # Deeper subsurface

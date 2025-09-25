@@ -24,7 +24,7 @@ def sentinel2(
     '''
     log.setLevel(cfg.log_level)
 
-    log.debug("Starting Sentinel-2 extraction")
+    log.info("Starting Sentinel-2 extraction")
     # Define date range
     start_date = cfg.date_range.start_date
     end_date = cfg.date_range.end_date
@@ -70,7 +70,7 @@ def sentinel2(
 
     s2_df = pd.DataFrame(s2_data_rows)
 
-    log.debug(f"Successfully extracted {len(s2_df)} Sentinel-2 observations")
+    log.info(f"Successfully extracted {len(s2_df)} Sentinel-2 observations")
 
     return s2_df
 
