@@ -7,6 +7,7 @@ modalities: # what modalities to download, name must match the function name in 
   - sentinel2
   - fapar
   - soil
+  - elevation
 
 
 ###### Modality specific configs ######
@@ -60,3 +61,13 @@ soil:
     - 0-5cm     # Surface layer
     - 5-15cm    # Shallow subsurface
     - 15-30cm   # Deeper subsurface
+
+elevation:
+  log_level: *log_level
+  name: elevation
+  bands:
+    - b1
+
+  date_range:
+    start_date: *start_date
+    end_date: *end_date

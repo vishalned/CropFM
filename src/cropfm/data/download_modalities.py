@@ -4,7 +4,8 @@ from omegaconf import DictConfig
 from cropfm.data.modalities import (
     sentinel2,
     fapar,
-    soil
+    soil,
+    elevation
 )
 import logging
 import time

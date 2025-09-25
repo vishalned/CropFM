@@ -12,7 +12,8 @@ def soil(
 ) -> pd.DataFrame:
     """
     Extract SoilGrids soil properties data for a point.
-    
+    SoilGrids - 250m resolution
+
     Args:
         cfg: Hydra config containing soil parameters
         point: Geographic point to extract data from
@@ -51,7 +52,7 @@ def soil(
             # Sample the soil property at the point
             pixel_value = soil_image.select(band_name).sample(
                 region=point,
-                scale=250,  # SoilGrids native resolution is 250m
+                scale=250,
                 numPixels=1
             )
             
@@ -62,7 +63,7 @@ def soil(
                 value = sample_data['features'][0]['properties'][band_name]
                 
                 all_data.append({
-                    'property': var,
+                    'variable': var,
                     'depth_layer': depth,
                     'value': value,
                     'modality': cfg.name
