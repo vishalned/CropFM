@@ -11,7 +11,7 @@ def sentinel2(
     **kwargs
 ) -> pd.DataFrame:
     '''
-    A function to extract Sentinel-2 data from the Earth Engine API.
+    Extract Sentinel-2 data for a point.
     S2 - 10m resolution
 
     Args:
@@ -20,11 +20,11 @@ def sentinel2(
         **kwargs: Additional arguments.
 
     Returns:
-        pd.DataFrame: The extracted data.
+        pd.DataFrame: Extracted Sentinel-2 bands with metadata
     '''
     log.setLevel(cfg.log_level)
 
-    log.info("Starting Sentinel-2 extraction")
+    log.info(f"Starting {cfg.name} extraction")
     # Define date range
     start_date = cfg.date_range.start_date
     end_date = cfg.date_range.end_date
@@ -39,7 +39,7 @@ def sentinel2(
     # Define S2 band names to filter
     s2_band_names = list(cfg.bands)
 
-    # Sample only first S2 image with filtered bands
+    # Sample S2 image with filtered bands
     def sample_s2_image(image):
         selected_image = image.select(s2_band_names)
         pixel_value = selected_image.sample(

@@ -1,16 +1,48 @@
 ## GLOBALS
-log_level: &log_level DEBUG
+log_level: &log_level INFO
 start_date: &start_date 2020-03-01
-end_date: &end_date 2021-12-31
+end_date: &end_date 2020-03-31
 
 modalities: # what modalities to download, name must match the function name in the modalities.py file
+  - agera5
   - sentinel2
+  - sentinel1
   - fapar
   - soil
   - elevation
 
 
 ###### Modality specific configs ######
+agera5:
+  log_level: *log_level
+  name: agera5 # any text to identify the modality
+  variables:
+    - 'Precipitation_Flux'
+    - 'Vapour_Pressure_Mean'
+    - 'Temperature_Air_2m_Max_24h'
+    - 'Temperature_Air_2m_Min_24h'
+    - 'Temperature_Air_2m_Mean_24h'
+    - 'Solar_Radiation_Flux'
+    - 'Wind_Speed_10m_Mean'
+    - 'Relative_Humidity_2m_06h'
+    - 'Relative_Humidity_2m_15h'
+
+  date_range:
+    start_date: *start_date
+    end_date: *end_date
+
+sentinel1:
+  log_level: *log_level
+  name: sentinel1 # any text to identify the modality
+  bands:
+    - 'VV'
+    - 'VH'
+    - 'angle'
+
+  date_range:
+    start_date: *start_date
+    end_date: *end_date
+
 sentinel2:
   log_level: *log_level
   name: sentinel2 # any text to identify the modality
