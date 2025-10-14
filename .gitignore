@@ -1,6 +1,8 @@
 *.geojson
 *.json
 *.txt
+*.zarr
+*.ipynb
 *__pycache__/
 
 slurm_logs/
