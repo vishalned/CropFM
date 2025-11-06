@@ -3,17 +3,19 @@ import ee
 import json
 import numpy as np
 from omegaconf import DictConfig
-from modalities import (
+from cropfm.data.modalities import (
     agera5,
     sentinel1,
     sentinel2,
     fapar,
     soil,
-    elevation
+    elevation,
+    worldcereal_cropmask,
+    worldcereal_cropcalender
 )
 import logging
 import time
-from save2zarr import create_zarr_dataset, add_sample_data
+from cropfm.data.utils import save2zarr
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 import threading
@@ -136,7 +138,7 @@ def process_point_batch(args):
             sample_data.update(results[point_id])
             
             try:
-                add_sample_data(zarr_root, batch_start_idx + i, sample_data)
+                save2zarr.add_sample_data(zarr_root, batch_start_idx + i, sample_data)
                 log.info(f"Saved data for point {point_id} to zarr")
             except Exception as e:
                 log.error(f"Error saving data for point {point_id} to zarr: {e}")
@@ -163,7 +165,7 @@ def main(cfg: DictConfig):
     # Create zarr dataset
     zarr_path = '/home/WUR/xiong015/xxglt/CropFM/data/modalities/test_dataset.zarr'
     total_samples = len(selected_features)
-    zarr_root = create_zarr_dataset(zarr_path, total_samples)
+    zarr_root = save2zarr.create_zarr_dataset(zarr_path, total_samples)
     log.info(f"Created zarr dataset at {zarr_path} with {total_samples} samples")
     
     start_time_total = time.time()

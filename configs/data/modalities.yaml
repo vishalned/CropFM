@@ -11,6 +11,8 @@ modalities: # what modalities to download, name must match the function name in 
   - soil
   - elevation
   - landcover
+  - worldcereal_cropmask
+  - worldcereal_cropcalender
 
 ###### Modality specific configs ######
 agera5:
@@ -184,3 +186,10 @@ alphaearth:
     - 'A61'
     - 'A62'
     - 'A63'
+worldcereal_cropmask:
+  log_level: *log_level
+  name: worldcereal_cropmask
+
+worldcereal_cropcalender:
+  log_level: *log_level
+  name: worldcereal_cropcalender
