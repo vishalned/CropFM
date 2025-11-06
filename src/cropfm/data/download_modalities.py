@@ -3,17 +3,19 @@ import ee
 import json
 import numpy as np
 from omegaconf import DictConfig
-from modalities import (
+from cropfm.data.modalities import (
     agera5,
     sentinel1,
     sentinel2,
     fapar,
     soil,
-    elevation
+    elevation,
+    worldcereal_cropmask,
+    worldcereal_cropcalender
 )
 import logging
 import time
-from save2zarr import create_zarr_dataset, add_sample_data
+from cropfm.data.utils.save2zarr import create_zarr_dataset, add_sample_data
 
 log = logging.getLogger(__name__)
 

@@ -10,7 +10,8 @@ modalities: # what modalities to download, name must match the function name in 
   - fapar
   - soil
   - elevation
-
+  - worldcereal_cropmask
+  - worldcereal_cropcalender
 
 ###### Modality specific configs ######
 agera5:
@@ -103,3 +104,11 @@ elevation:
   date_range:
     start_date: *start_date
     end_date: *end_date
+
+worldcereal_cropmask:
+  log_level: *log_level
+  name: worldcereal_cropmask
+
+worldcereal_cropcalender:
+  log_level: *log_level
+  name: worldcereal_cropcalender
