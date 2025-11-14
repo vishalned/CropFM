@@ -4,8 +4,8 @@ start_date: &start_date 2021-01-01
 end_date: &end_date 2022-01-01
 
 points_geojson_file: ${oc.env:CROPFM_DATA_DIR}/data/europe_sampled_points_merged.geojson
-# zarr_path: ${oc.env:CROPFM_DATA_DIR}/data/europe_data.zarr
-zarr_path: /home/vnedungadi/CropFM/test_dataset.zarr ######## For testing only #########
+zarr_path: ${oc.env:CROPFM_DATA_DIR}/data/europe_data_1000.zarr
+# zarr_path: /home/vnedungadi/CropFM/test_dataset.zarr ######## For testing only #########
 
 # Optional parameters for batch processing
 resume_from_batch: 0  # Start from batch 0 (beginning). Set to N to resume from batch N
