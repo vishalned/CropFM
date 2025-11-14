@@ -1,6 +1,7 @@
 import ee
 import pandas as pd
 import logging
+import numpy as np
 from omegaconf import DictConfig
 
 log = logging.getLogger(__name__)
@@ -34,33 +35,26 @@ def elevation(
     # Sample elevation at the point
     elevation_sample = elevation_image.sample(
         region=point,
-        scale=30,
+        scale=10,
         numPixels=1
     )
     
     # Get elevation data
     elevation_data = elevation_sample.getInfo()
     
-    all_data = []
+    elevation_value = np.nan
+    slope_value = np.nan
     
     if elevation_data['features']:
         elevation_value = elevation_data['features'][0]['properties'].get(bands[0])
         
         if elevation_value is not None:
-            all_data.append({
-                'variable': 'elevation',
-                'value': elevation_value,
-                'modality': cfg.name,
-            })
-            
-            log.debug(f"Elevation: {elevation_value} meters")
-            
             # Calculate and sample slope
             slope_image = ee.Terrain.slope(elevation_image)
             
             slope_sample = slope_image.sample(
                 region=point,
-                scale=30,
+                scale=10,
                 numPixels=1
             )
             
@@ -70,13 +64,19 @@ def elevation(
                 slope_value = slope_data['features'][0]['properties'].get('slope')
                 
                 if slope_value is not None:
-                    all_data.append({
-                        'variable': 'slope',
-                        'value': slope_value,
-                        'modality': cfg.name,
-                    })
+                    slope_value = slope_data['features'][0]['properties'].get('slope')
+
+    df = pd.DataFrame({
+        'elevation': elevation_value,
+        'slope': slope_value,
+    }, index=[0])
+
+    elevation_data_dict = {
+        'modality': cfg.name,
+        'data': df,
+        'variable_names': ['elevation', 'slope'],
+    }
+
+    log.info(f"Successfully extracted {len(elevation_data_dict['data'])} elevation observations")
     
-    df = pd.DataFrame(all_data)
-    log.info(f"Successfully extracted {len(df)} elevation observations")
-    
-    return df
+    return elevation_data_dict

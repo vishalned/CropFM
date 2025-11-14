@@ -32,7 +32,7 @@ def agera5(
     log.info(f"Starting {cfg.name} extraction")
     
     # Read in Image Collection and filter by date and location
-    agera5_collection = ee.ImageCollection('projects/climate-engine-pro/assets/ce-ag-era5/daily') \
+    agera5_collection = ee.ImageCollection('projects/climate-engine-pro/assets/ce-ag-era5-v2/daily') \
         .filterDate(start_date, end_date) \
         .filterBounds(point)
     
@@ -46,8 +46,7 @@ def agera5(
         )
         
         def add_metadata(feature):
-            return feature.set('date', image.date().format('YYYY-MM-dd')) \
-                         .set('modality', cfg.name)
+            return feature.set('date', image.date().format('YYYY-MM-dd'))
         
         return pixel_value.map(add_metadata)
     
@@ -65,8 +64,17 @@ def agera5(
         row = feature['properties'].copy()
         agera5_data_rows.append(row)
     
-    agera5_df = pd.DataFrame(agera5_data_rows)
-    
-    log.info(f"Successfully extracted {len(agera5_df)} AgERA5 observations")
-    
-    return agera5_df
+
+    agera5_data_dict = {
+        'modality': cfg.name,
+        'data': pd.DataFrame(agera5_data_rows),
+        'variable_names': variables,
+        'timestamps': [feature['properties']['date'] for feature in agera5_features]
+    }
+
+    data_columns = [col for col in variables if col in agera5_data_dict['data'].columns]
+    agera5_data_dict['data'] = agera5_data_dict['data'][data_columns]
+
+    log.info(f"Successfully extracted {len(agera5_data_dict['data'])} AgERA5 observations")
+
+    return agera5_data_dict

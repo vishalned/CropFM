@@ -57,15 +57,16 @@ def worldcereal_cropcalender(
     log.debug(f'Crop calendar for AEZ containing point: {calendar_dict}')
     
     # Prepare data for DataFrame
-    all_data = []
+    df = pd.DataFrame(calendar_dict, index=[0])
+    cropcalender_data_dict = {
+        'modality': cfg.name,
+        'data': df,
+        'variable_names': calendar_properties,
+    }
+
+    data_columns = [col for col in calendar_properties if col in cropcalender_data_dict['data'].columns]
+    cropcalender_data_dict['data'] = cropcalender_data_dict['data'][data_columns]
+
+    log.info(f"Successfully extracted {len(cropcalender_data_dict['data'])} WorldCereal crop calendar observations")
     
-    # Add the calendar data with modality information
-    calendar_data = calendar_dict.copy()
-    calendar_data['modality'] = cfg.name
-    all_data.append(calendar_data)
-    
-    df = pd.DataFrame(all_data)
-    
-    log.info(f"Successfully extracted {len(df)} WorldCereal crop calendar observations")
-    
-    return df
+    return cropcalender_data_dict

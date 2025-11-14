@@ -50,8 +50,7 @@ def sentinel1(
         )
         
         def add_metadata(feature):
-            return feature.set('date', image.date().format('YYYY-MM-dd')) \
-                        .set('modality', cfg.name)
+            return feature.set('date', image.date().format('YYYY-MM-dd'))
         
         return pixel_value.map(add_metadata)
 
@@ -69,8 +68,16 @@ def sentinel1(
         row = feature['properties'].copy()
         s1_data_rows.append(row)
 
-    s1_df = pd.DataFrame(s1_data_rows)
+    s1_data_dict = {
+        'modality': cfg.name,
+        'data': pd.DataFrame(s1_data_rows),
+        'variable_names': s1_band_names,
+        'timestamps': [feature['properties']['date'] for feature in s1_features]
+    }
 
-    log.info(f"Successfully extracted {len(s1_df)} Sentinel-1 observations")
+    data_columns = [col for col in s1_band_names if col in s1_data_dict['data'].columns]
+    s1_data_dict['data'] = s1_data_dict['data'][data_columns]
 
-    return s1_df
+    log.info(f"Successfully extracted {len(s1_data_dict['data'])} Sentinel-1 observations")
+
+    return s1_data_dict

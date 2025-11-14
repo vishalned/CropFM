@@ -46,8 +46,7 @@ def fapar(
         )
         
         def add_metadata(feature):
-            return (feature.set('date', image.date().format('YYYY-MM-dd'))
-                           .set('modality', cfg.name))
+            return feature.set('date', image.date().format('YYYY-MM-dd'))
         
         return pixel_value.map(add_metadata)
     
@@ -66,7 +65,16 @@ def fapar(
         row = feature['properties'].copy()
         data_rows.append(row)
 
-    df = pd.DataFrame(data_rows)
-    log.info(f"Successfully extracted {len(df)} FAPAR observations")
+    fapar_data_dict = {
+        'modality': cfg.name,
+        'data': pd.DataFrame(data_rows),
+        'variable_names': variables,
+        'timestamps': [feature['properties']['date'] for feature in features]
+    }
+
+    data_columns = [col for col in variables if col in fapar_data_dict['data'].columns]
+    fapar_data_dict['data'] = fapar_data_dict['data'][data_columns]
+
+    log.info(f"Successfully extracted {len(fapar_data_dict['data'])} FAPAR observations")
     
-    return df
+    return fapar_data_dict

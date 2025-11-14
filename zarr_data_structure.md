@@ -10,7 +10,7 @@ dataset.zarr/
 │   ├── sample_info                    # shape: (1000000,) - structured array
 │   │   # Contains: sample_id, grid_id, country, continent, classification
 │   │   #          tempCropArea, cellArea, coordinates (lon, lat)
-│   └── spatial_index                  # shape: (1000000, 2) - spatial index [lon, lat]
+│   └── coordinates                  # shape: (1000000, 2) - coordinates of the point [lon, lat]
 │
 ├── static_modalities/                 # Static data (time-invariant)
 │   ├── soil/                         
@@ -33,13 +33,13 @@ dataset.zarr/
 │   │   ├── data                      # shape: (1000000, max_observations, 3)
 │   │   ├── timestamps               # shape: (1000000, max_observations)
 │   │   ├── valid_mask              # shape: (1000000, max_observations)
-│   │   └── band_names              # shape: (3,) - band names
+│   │   └── variable_names          # shape: (3,) - variable names
 │   │
 │   ├── sentinel2/
 │   │   ├── data                      # shape: (1000000, max_observations, 15)
 │   │   ├── timestamps               # shape: (1000000, max_observations)
 │   │   ├── valid_mask              # shape: (1000000, max_observations)
-│   │   └── band_names              # shape: (15,) - band names
+│   │   └── variable_names          # shape: (15,) - variable names
 │   │
 │   └── fapar/
 │       ├── data                      # shape: (1000000, max_observations, 2)

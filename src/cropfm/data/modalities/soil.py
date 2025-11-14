@@ -38,38 +38,34 @@ def soil(
         'soc': 'projects/soilgrids-isric/soc_mean'
     }
     
-    all_data = []
+    soil_data = {}
     
     for var in variables:      
         log.debug(f"Processing soil property: {var}")
         
         # Load the soil property image
         soil_image = ee.Image(soil_assets[var])
-        
-        for depth in depth_layers:
-            band_name = f"{var}_{depth}_mean"
+
+        band_names = [f"{var}_{depth}_mean" for depth in depth_layers]
+
+        pixel_value = soil_image.select(band_names).sample(
+            region=point,
+            scale=250,
+            numPixels=1
+        )
+
+        sample_data = pixel_value.getInfo()
+
+        if sample_data['features']:
+            soil_data[var] = [sample_data['features'][0]['properties'][band_name] for band_name in band_names]
             
-            # Sample the soil property at the point
-            pixel_value = soil_image.select(band_name).sample(
-                region=point,
-                scale=250,
-                numPixels=1
-            )
-            
-            # Extract the value
-            sample_data = pixel_value.getInfo()
-            
-            if sample_data['features'] and sample_data['features'][0]['properties'][band_name] is not None:
-                value = sample_data['features'][0]['properties'][band_name]
-                
-                all_data.append({
-                    'variable': var,
-                    'depth_layer': depth,
-                    'value': value,
-                    'modality': cfg.name
-                })
+    df = pd.DataFrame(soil_data)
+    soil_data_dict = {
+        'modality': cfg.name,
+        'data': df,
+        'variable_names': variables,
+    }
+
+    log.info(f"Successfully extracted {len(soil_data_dict['data'])} soil property observations")
     
-    df = pd.DataFrame(all_data)
-    log.info(f"Successfully extracted {len(df)} soil property observations")
-    
-    return df
+    return soil_data_dict

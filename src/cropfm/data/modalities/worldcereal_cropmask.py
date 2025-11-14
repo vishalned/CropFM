@@ -80,14 +80,17 @@ def worldcereal_cropmask(
     aez_list = aez_for_point.aggregate_array('aez_id').getInfo()
     aez_id = aez_list[0] if aez_list else None
 
-    all_data = []
-    all_data.append({
-        'aez_id': aez_id,
-        'crop_mask': crop_value,
-        'modality': cfg.name
-    })
+    df = pd.DataFrame({
+        'aez_id': [aez_id],
+        'crop_mask': [crop_value],
+    }, index=[0])
 
-    df = pd.DataFrame(all_data)
-    log.info(f"Successfully extracted {len(df)} WorldCereal observations")
+    cropmask_data_dict = {
+        'modality': cfg.name,
+        'data': df,
+        'variable_names': ['aez_id', 'crop_mask'],
+    }
 
-    return df
+    log.info(f"Successfully extracted {len(cropmask_data_dict['data'])} WorldCereal observations")
+
+    return cropmask_data_dict

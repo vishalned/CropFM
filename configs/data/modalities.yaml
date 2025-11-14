@@ -1,7 +1,16 @@
 ## GLOBALS
 log_level: &log_level INFO
-start_date: &start_date 2020-03-01
-end_date: &end_date 2020-03-31
+start_date: &start_date 2021-01-01
+end_date: &end_date 2022-01-01
+
+points_geojson_file: ${oc.env:CROPFM_DATA_DIR}/data/europe_sampled_points_merged.geojson
+# zarr_path: ${oc.env:CROPFM_DATA_DIR}/data/europe_data.zarr
+zarr_path: /home/vnedungadi/CropFM/test_dataset.zarr ######## For testing only #########
+
+# Optional parameters for batch processing
+resume_from_batch: 0  # Start from batch 0 (beginning). Set to N to resume from batch N
+batch_size: 40        # Points per batch
+error_log_path: /home/vnedungadi/CropFM/failed_points.txt  # Path to error log file
 
 modalities: # what modalities to download, name must match the function name in the modalities.py file
   - agera5
@@ -10,7 +19,6 @@ modalities: # what modalities to download, name must match the function name in 
   - fapar
   - soil
   - elevation
-  - landcover
   - worldcereal_cropmask
   - worldcereal_cropcalender
 
@@ -20,14 +28,13 @@ agera5:
   name: agera5 # any text to identify the modality
   variables:
     - 'Precipitation_Flux'
-    - 'Vapour_Pressure_Mean'
+    - 'Vapour_Pressure_Mean_24h'
     - 'Temperature_Air_2m_Max_24h'
     - 'Temperature_Air_2m_Min_24h'
     - 'Temperature_Air_2m_Mean_24h'
     - 'Solar_Radiation_Flux'
-    - 'Wind_Speed_10m_Mean'
-    - 'Relative_Humidity_2m_06h'
-    - 'Relative_Humidity_2m_15h'
+    - 'Wind_Speed_10m_Mean_24h'
+    - 'Derived_Relative_Humidity_2m_Max_24h'
 
   date_range:
     start_date: *start_date
@@ -115,6 +122,14 @@ landcover:
     - 2020
     - 2021
 
+worldcereal_cropmask:
+  log_level: *log_level
+  name: worldcereal_cropmask
+
+worldcereal_cropcalender:
+  log_level: *log_level
+  name: worldcereal_cropcalender
+
 alphaearth:
   log_level: *log_level
   name: alphaearth
@@ -186,10 +201,3 @@ alphaearth:
     - 'A61'
     - 'A62'
     - 'A63'
-worldcereal_cropmask:
-  log_level: *log_level
-  name: worldcereal_cropmask
-
-worldcereal_cropcalender:
-  log_level: *log_level
-  name: worldcereal_cropcalender
