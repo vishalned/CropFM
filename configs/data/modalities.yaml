@@ -3,14 +3,14 @@ log_level: &log_level INFO
 start_date: &start_date 2021-01-01
 end_date: &end_date 2022-01-01
 
-points_geojson_file: ${oc.env:CROPFM_DATA_DIR}/data/europe_sampled_points_merged.geojson
-zarr_path: ${oc.env:CROPFM_DATA_DIR}/data/europe_data_1000.zarr
-# zarr_path: /home/vnedungadi/CropFM/test_dataset.zarr ######## For testing only #########
+# points_geojson_file: ${oc.env:CROPFM_DATA_DIR}/data/europe_sampled_points_merged.geojson
+# zarr_path: ${oc.env:CROPFM_DATA_DIR}/data/europe_data_1000.zarr
+points_geojson_file: /lustre/scratch/WUR/AIN/nedun001/CropFM/data/europe_sampled_points_merged.geojson
+zarr_path: /lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200.zarr
 
-# Optional parameters for batch processing
-resume_from_batch: 0  # Start from batch 0 (beginning). Set to N to resume from batch N
-batch_size: 40        # Points per batch
-error_log_path: /home/vnedungadi/CropFM/failed_points.txt  # Path to error log file
+# slurm batch processing parameters
+total_batches: 40     # Total number of batches (for SLURM array jobs)
+error_log_path: /lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/failed_points.txt  # Path to error log file
 
 modalities: # what modalities to download, name must match the function name in the modalities.py file
   - agera5

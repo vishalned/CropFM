@@ -3,6 +3,7 @@
 *.txt
 *.ipynb
 *__pycache__/
+data/
 
 slurm_logs/
 tmp_scripts/

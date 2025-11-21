@@ -226,12 +226,39 @@ def add_sample_data(zarr_root, sample_idx: int, sample_data: Dict[str, Any]):
         zarr_root['static_modalities/worldcereal_cropmask/aez_id'][sample_idx] = np.array(cropmask_data['aez_id'])
         zarr_root['static_modalities/worldcereal_cropmask/crop_mask'][sample_idx] = np.array(cropmask_data['crop_mask'])
     
-    if 'worldcereal_cropcalendar' in sample_data:
-        cropcalendar_data = sample_data['worldcereal_cropcalendar']['data']
-        zarr_root['static_modalities/worldcereal_cropcalendar/aez_id'][sample_idx] = np.array(cropcalendar_data['aez_id'])
-        zarr_root['static_modalities/worldcereal_cropcalendar/crop_calendar'][sample_idx] = np.array(cropcalendar_data['crop_calendar'])
-        zarr_root['static_modalities/worldcereal_cropcalendar/variable_names'][sample_idx] = np.array(cropcalendar_data['variable_names'])
-    
+    if 'worldcereal_cropcalender' in sample_data:
+        cropcalendar_data = sample_data['worldcereal_cropcalender']['data']
+        
+        # Handle DataFrame (from modality) or dict (already converted)
+        import pandas as pd
+        if isinstance(cropcalendar_data, pd.DataFrame):
+            # Extract data from DataFrame
+            if not cropcalendar_data.empty:
+                # Get aez_id
+                aez_id = cropcalendar_data['aez_id'].iloc[0] if 'aez_id' in cropcalendar_data.columns else -1
+                
+                # Get the 6 calendar values (excluding aez_id)
+                calendar_cols = [col for col in cropcalendar_data.columns if col != 'aez_id']
+                calendar_values = [cropcalendar_data[col].iloc[0] if col in cropcalendar_data.columns else -1 
+                                  for col in ['tc-maize-main_sos', 'tc-maize-main_eos',
+                                             'tc-wintercereals_sos', 'tc-wintercereals_eos',
+                                             'tc-springcereals_sos', 'tc-springcereals_eos']]
+                
+                # Get variable names
+                var_names = sample_data['worldcereal_cropcalender'].get('variable_names', calendar_cols)
+            else:
+                aez_id = -1
+                calendar_values = [-1] * 6
+                var_names = [''] * 6
+        else:
+            # Already a dict (shouldn't happen, but handle it)
+            aez_id = cropcalendar_data.get('aez_id', -1)
+            calendar_values = cropcalendar_data.get('crop_calendar', [-1] * 6)
+            var_names = cropcalendar_data.get('variable_names', [''] * 6)
+        
+        zarr_root['static_modalities/worldcereal_cropcalendar/aez_id'][sample_idx] = np.array(aez_id)
+        zarr_root['static_modalities/worldcereal_cropcalendar/crop_calendar'][sample_idx] = np.array(calendar_values)
+        zarr_root['static_modalities/worldcereal_cropcalendar/variable_names'][:] = np.array(var_names)
     # 3. Add temporal data
     for modality in ['agera5', 'sentinel1', 'sentinel2', 'fapar']:
         if modality in sample_data:
