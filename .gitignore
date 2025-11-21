@@ -1,7 +1,6 @@
 *.geojson
 *.json
 *.txt
-*.zarr
 *.ipynb
 *__pycache__/
 
