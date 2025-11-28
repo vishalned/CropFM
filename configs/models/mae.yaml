@@ -1,0 +1,57 @@
+# Hydra configuration for CropMAE training
+
+defaults:
+  - _self_
+
+# Model configuration
+model:
+  # Modality dimensions: dictionary mapping modality names to feature dimensions
+  # Example: {modality_name: feature_dim}
+  # This should match your actual data modalities
+  modality_dims:
+    agera5: 8  # Example: 8 variables from agera5
+    sentinel1: 3  # Example: VV, VH, angle
+    sentinel2: 13  # Example: 13 bands
+    fapar: 2  # Example: FAPAR, LAI
+    soil: 4  # Example: clay, nitrogen, phh2o, soc
+    elevation: 2  # Example: elevation, slope
+    worldcereal_cropmask: 1  # Example: crop mask
+    worldcereal_cropcalender: 6  # Example: crop calendar variables
+  
+  # Architecture hyperparameters
+  embedding_dim: 128
+  encoder_depth: 6
+  encoder_num_heads: 8
+  decoder_embed_dim: 128
+  decoder_depth: 2
+  decoder_num_heads: 8
+  mlp_ratio: 4.0
+  mask_ratio: 0.75
+  max_sequence_length: 1000
+  use_pos_embedding: true
+
+# Training configuration
+training:
+  learning_rate: 1.0e-4
+  weight_decay: 0.05
+  warmup_epochs: 10
+  max_epochs: 100
+  accelerator: auto  # 'cpu', 'gpu', 'tpu', 'auto'
+  devices: auto  # number of devices or 'auto'
+  log_every_n_steps: 50
+  val_check_interval: 1.0  # Check validation every N epochs
+
+# Logger configuration (optional)
+logger:
+  use_wandb: false
+  project: cropfm-mae
+  name: mae-baseline
+
+# Data configuration (placeholder - to be implemented)
+# data:
+#   batch_size: 32
+#   num_workers: 4
+#   train_split: 0.8
+#   val_split: 0.1
+#   test_split: 0.1
+
