@@ -93,73 +93,107 @@ def main(cfg: DictConfig):
     start_time_total = time.time()
     failed_count = 0
     
-    # Process each point sequentially
-    for i, feature in enumerate(selected_features):
-        point_id = feature['id']
-        coordinates = feature['geometry']['coordinates']
-        point = ee.Geometry.Point(coordinates)
+    # Batch size for GEE processing
+    gee_batch_size = cfg.get('batch_size', 50)
+    log.info(f"Using GEE batch size: {gee_batch_size} points per GEE batch")
+    
+    # Process points in GEE batches
+    for gee_batch_start in range(0, len(selected_features), gee_batch_size):
+        gee_batch_end = min(gee_batch_start + gee_batch_size, len(selected_features))
+        gee_batch_features = selected_features[gee_batch_start:gee_batch_end]
         
-        log.info(f"Processing point {i+1}/{len(selected_features)} (global index {batch_start + i}) - ID: {point_id}, Coordinates: {coordinates}")
+        log.info(f"Processing GEE batch {gee_batch_start//gee_batch_size + 1}/{(len(selected_features)-1)//gee_batch_size + 1} "
+                 f"(points {gee_batch_start} to {gee_batch_end-1})")
         
-        # Initialize sample data dictionary with feature properties
-        properties = feature.get('properties', {})
-        sample_data = {
-            'metadata': {
-                'sample_id': point_id,
-                'grid_id': properties.get('grid_id', int(point_id.split('_')[0]) if '_' in point_id else 0),
-                'country': properties.get('country', 'Unknown'),
-                'continent': properties.get('continent', 'Europe'),
-                'classification': properties.get('classification', 0),
-                'tempCropArea': properties.get('tempCropArea', 0.0),
-                'cellArea': properties.get('cellArea', 0.0),
-                'coordinates': coordinates
-            }
-        }
+        # Create FeatureCollection for this batch
+        point_features = []
+        for feature in gee_batch_features:
+            point_id = feature['id']
+            coordinates = feature['geometry']['coordinates']
+            point = ee.Geometry.Point(coordinates)
+            # Add point_id as a property for later matching
+            point_feature = ee.Feature(point, {'point_id': point_id})
+            point_features.append(point_feature)
         
-        # Track failed modalities for this point
-        failed_modalities = []
+        point_fc = ee.FeatureCollection(point_features)
         
-        # Run all modalities for this point
+        # Process all modalities for this batch
+        batch_results = {}
         for modality in cfg.modalities:
             start_time = time.time()
             try:
-                modality_df = eval(modality)(cfg[modality], point, log_level=cfg.log_level)
-                sample_data[modality] = modality_df
-                
-                log.info(f'  {modality} for point {point_id}: {time.time() - start_time:.2f} seconds')
+                modality_func = eval(modality)
+                modality_results = modality_func(
+                    cfg[modality], 
+                    point_fc, 
+                    gee_batch_features, 
+                    log_level=cfg.log_level
+                )
+                batch_results[modality] = modality_results
+                log.info(f'  {modality} batch ({len(gee_batch_features)} points): {time.time() - start_time:.2f} seconds')
             except Exception as e:
-                error_msg = f"{modality}: {str(e)}"
-                log.error(f'  Error in {modality} for point {point_id}: {e}')
-                failed_modalities.append(error_msg)
+                log.error(f'  Error in {modality} batch: {e}')
+                raise  # Re-raise to fail fast
         
-        # Save to zarr if at least some data was collected
-        try:
-            # Check if we have any modality data
-            has_data = any(mod in sample_data for mod in cfg.modalities if mod != 'metadata')
+        # Save batch results to zarr
+        for i, feature in enumerate(gee_batch_features):
+            point_id = feature['id']
+            sample_idx = gee_batch_start + i
+            global_idx = batch_start + sample_idx
             
-            if has_data:
-                add_sample_data(zarr_root, i, sample_data)
-                log.info(f"Saved data for point {point_id} to zarr (batch index {i})")
+            # Initialize sample data dictionary
+            properties = feature.get('properties', {})
+            sample_data = {
+                'metadata': {
+                    'sample_id': point_id,
+                    'grid_id': properties.get('grid_id', int(point_id.split('_')[0]) if '_' in point_id else 0),
+                    'country': properties.get('country', 'Unknown'),
+                    'continent': properties.get('continent', 'Europe'),
+                    'classification': properties.get('classification', 0),
+                    'tempCropArea': properties.get('tempCropArea', 0.0),
+                    'cellArea': properties.get('cellArea', 0.0),
+                    'coordinates': feature['geometry']['coordinates']
+                }
+            }
+            
+            # Track failed modalities for this point
+            failed_modalities = []
+            
+            # Add modality data from batch results
+            for modality in cfg.modalities:
+                if modality in batch_results and point_id in batch_results[modality]:
+                    sample_data[modality] = batch_results[modality][point_id]
+                else:
+                    failed_modalities.append(f"{modality}: No data")
+            
+            # Save to zarr if at least some data was collected
+            try:
+                # Check if we have any modality data
+                has_data = any(mod in sample_data for mod in cfg.modalities if mod != 'metadata')
                 
-                # If some modalities failed, log the point with partial failure
-                if failed_modalities:
-                    error_msg = "Partial failure: " + "; ".join(failed_modalities)
+                if has_data:
+                    add_sample_data(zarr_root, sample_idx, sample_data)
+                    log.info(f"Saved data for point {point_id} to zarr (batch index {sample_idx}, global {global_idx})")
+                    
+                    # If some modalities failed, log the point with partial failure
+                    if failed_modalities:
+                        error_msg = "Partial failure: " + "; ".join(failed_modalities)
+                        log_failed_point(point_id, error_file_path, error_msg)
+                        log.warning(f"Point {point_id} saved with partial failures: {error_msg}")
+                else:
+                    # No data collected at all - complete failure
+                    error_msg = "All modalities failed: " + "; ".join(failed_modalities) if failed_modalities else "No data collected"
                     log_failed_point(point_id, error_file_path, error_msg)
-                    log.warning(f"Point {point_id} saved with partial failures: {error_msg}")
-            else:
-                # No data collected at all - complete failure
-                error_msg = "All modalities failed: " + "; ".join(failed_modalities) if failed_modalities else "No data collected"
+                    log.error(f"Point {point_id} failed completely: {error_msg}")
+                    failed_count += 1
+                    
+            except Exception as e:
+                error_msg = f"Zarr save error: {str(e)}"
+                log.error(f"Error saving data for point {point_id} to zarr: {e}")
                 log_failed_point(point_id, error_file_path, error_msg)
-                log.error(f"Point {point_id} failed completely: {error_msg}")
                 failed_count += 1
-                
-        except Exception as e:
-            error_msg = f"Zarr save error: {str(e)}"
-            log.error(f"Error saving data for point {point_id} to zarr: {e}")
-            log_failed_point(point_id, error_file_path, error_msg)
-            failed_count += 1
-        
-        log.info(f"Completed point {point_id}")
+            
+            log.info(f"Completed point {point_id}")
 
     log.info(f'Total time taken for batch {batch_idx + 1}: {time.time() - start_time_total:.2f} seconds')
     log.info(f'Data saved to zarr dataset at {zarr_path}')

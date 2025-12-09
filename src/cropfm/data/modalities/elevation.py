@@ -8,75 +8,82 @@ log = logging.getLogger(__name__)
 
 def elevation(
     cfg: DictConfig,
-    point: ee.Geometry.Point,
+    point_fc: ee.FeatureCollection,
+    batch_features: list,
     **kwargs
-) -> pd.DataFrame:
+) -> dict:
     """
-    Extract elevation and slope data for a point using ASTER GDEM.
+    Extract elevation and slope data for multiple points in batch using ASTER GDEM.
     ASTER GDEM - 30m resolution
     
     Args:
         cfg: Hydra config containing elevation parameters
-        point: Geographic point to extract data from
+        point_fc: FeatureCollection of points to extract data from
+        batch_features: List of GeoJSON features (for point_id mapping)
         **kwargs: Additional parameters (can override config)
         
     Returns:
-        pd.DataFrame: Extracted elevation and slope data with metadata
+        dict: Dictionary mapping point_id to data dict
     """
-    
-    # Get config values with optional overrides from kwargs
+    log.setLevel(cfg.log_level)
     bands = list(cfg.bands)
     
-    log.info(f"Starting elevation extraction")
+    log.info(f"Starting batch elevation extraction for {point_fc.size().getInfo()} points")
+    
+    # Create point_id lookup
+    point_id_map = {feat['id']: i for i, feat in enumerate(batch_features)}
     
     # Load ASTER GDEM
     elevation_image = ee.Image('projects/sat-io/open-datasets/ASTER/GDEM').select(bands).float()
     
-    # Sample elevation at the point
-    elevation_sample = elevation_image.sample(
-        region=point,
+    # Calculate slope
+    slope_image = ee.Terrain.slope(elevation_image)
+    
+    # Combine elevation and slope into one image
+    combined_image = elevation_image.addBands(slope_image)
+    
+    # Sample all points at once
+    samples = combined_image.sampleRegions(
+        collection=point_fc,
         scale=10,
-        numPixels=1
+        geometries=False
     )
     
-    # Get elevation data
-    elevation_data = elevation_sample.getInfo()
+    # Get all features
+    all_features = samples.getInfo()['features']
     
-    elevation_value = np.nan
-    slope_value = np.nan
+    # Group by point_id
+    batch_results = {}
+    for point_id in point_id_map.keys():
+        batch_results[point_id] = {
+            'elevation': np.nan,
+            'slope': np.nan
+        }
     
-    if elevation_data['features']:
-        elevation_value = elevation_data['features'][0]['properties'].get(bands[0])
+    for feature in all_features:
+        point_id = feature['properties'].get('point_id')
+        if point_id and point_id in batch_results:
+            props = feature['properties']
+            elevation_value = props.get(bands[0])
+            slope_value = props.get('slope')
+            
+            if elevation_value is not None:
+                batch_results[point_id]['elevation'] = elevation_value
+            if slope_value is not None:
+                batch_results[point_id]['slope'] = slope_value
+    
+    # Convert to expected format
+    for point_id, data in batch_results.items():
+        df = pd.DataFrame({
+            'elevation': [data['elevation']],
+            'slope': [data['slope']],
+        }, index=[0])
         
-        if elevation_value is not None:
-            # Calculate and sample slope
-            slope_image = ee.Terrain.slope(elevation_image)
-            
-            slope_sample = slope_image.sample(
-                region=point,
-                scale=10,
-                numPixels=1
-            )
-            
-            slope_data = slope_sample.getInfo()
-            
-            if slope_data['features']:
-                slope_value = slope_data['features'][0]['properties'].get('slope')
-                
-                if slope_value is not None:
-                    slope_value = slope_data['features'][0]['properties'].get('slope')
-
-    df = pd.DataFrame({
-        'elevation': elevation_value,
-        'slope': slope_value,
-    }, index=[0])
-
-    elevation_data_dict = {
-        'modality': cfg.name,
-        'data': df,
-        'variable_names': ['elevation', 'slope'],
-    }
-
-    log.info(f"Successfully extracted {len(elevation_data_dict['data'])} elevation observations")
+        batch_results[point_id] = {
+            'modality': cfg.name,
+            'data': df,
+            'variable_names': ['elevation', 'slope'],
+        }
     
-    return elevation_data_dict
+    log.info(f"Successfully extracted data for {len(batch_results)} points")
+    return batch_results

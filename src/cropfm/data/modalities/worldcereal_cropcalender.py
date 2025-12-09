@@ -8,11 +8,12 @@ log = logging.getLogger(__name__)
 
 def worldcereal_cropcalender(
     cfg: DictConfig,
-    point: ee.Geometry.Point,
+    point_fc: ee.FeatureCollection,
+    batch_features: list,
     **kwargs
-) -> pd.DataFrame:
+) -> dict:
     '''
-    Extract WorldCereal crop calendar data for a point from AEZ polygons.
+    Extract WorldCereal crop calendar data for multiple points in batch from AEZ polygons.
         - 2021 model products
     
     Extracts crop calendar properties including start of season (SOS) and 
@@ -23,21 +24,22 @@ def worldcereal_cropcalender(
     
     Args:
         cfg: Hydra config containing worldcereal_cropcalender parameters
-        point: Geographic point to extract data from
+        point_fc: FeatureCollection of points to extract data from
+        batch_features: List of GeoJSON features (for point_id mapping)
         **kwargs: Additional parameters (can override config)
         
     Returns:
-        pd.DataFrame: Extracted crop calendar data with AEZ ID and seasonal dates
+        dict: Dictionary mapping point_id to data dict
     '''
     log.setLevel(cfg.log_level)
     
-    log.info(f"Starting {cfg.name} extraction")
+    log.info(f"Starting batch {cfg.name} extraction for {point_fc.size().getInfo()} points")
     
-    # Load AEZ table (FeatureCollection) - same as used in worldcereal cropmask
+    # Create point_id lookup
+    point_id_map = {feat['id']: i for i, feat in enumerate(batch_features)}
+    
+    # Load AEZ table (FeatureCollection)
     aez_table = ee.FeatureCollection('ESA/WorldCereal/AEZ/v100')
-    
-    # Filter to get the AEZ containing the point
-    aez_for_point = aez_table.filterBounds(point)
     
     # Define crop calendar properties of interest
     calendar_properties = [
@@ -47,26 +49,69 @@ def worldcereal_cropcalender(
         'tc-springcereals_sos', 'tc-springcereals_eos'
     ]
     
-    # Get the crop calendar feature for the AEZ polygon containing the point
-    # Select only the properties we need
-    crop_calendar_feature = ee.Feature(aez_for_point.first()).select(calendar_properties)
+    # Get bounding box of all points for efficient filtering
+    bounds = point_fc.geometry().bounds()
+    aez_in_bounds = aez_table.filterBounds(bounds)
     
-    # Get properties as a dictionary
-    calendar_dict = crop_calendar_feature.toDictionary().getInfo()
+    # For each point, find intersecting AEZ and extract calendar properties
+    def add_calendar_properties(feature):
+        point_geom = feature.geometry()
+        # Find AEZ polygons that intersect this point
+        intersecting_aez = aez_in_bounds.filterBounds(point_geom)
+        
+        # Get the first intersecting AEZ (should be only one)
+        calendar_feature = ee.Algorithms.If(
+            intersecting_aez.size().gt(0),
+            intersecting_aez.first().select(calendar_properties),
+            None
+        )
+        
+        # Extract properties
+        def extract_props(cal_feat):
+            return feature.setMulti(cal_feat.toDictionary())
+        
+        return ee.Algorithms.If(
+            calendar_feature,
+            extract_props(calendar_feature),
+            feature  # If no AEZ found, return original feature
+        )
     
-    log.debug(f'Crop calendar for AEZ containing point: {calendar_dict}')
+    point_fc_with_calendar = point_fc.map(add_calendar_properties)
     
-    # Prepare data for DataFrame
-    df = pd.DataFrame(calendar_dict, index=[0])
-    cropcalender_data_dict = {
-        'modality': cfg.name,
-        'data': df,
-        'variable_names': calendar_properties,
-    }
-
-    data_columns = [col for col in calendar_properties if col in cropcalender_data_dict['data'].columns]
-    cropcalender_data_dict['data'] = cropcalender_data_dict['data'][data_columns]
-
-    log.info(f"Successfully extracted {len(cropcalender_data_dict['data'])} WorldCereal crop calendar observations")
+    # Get all features with calendar data
+    all_features = point_fc_with_calendar.getInfo()['features']
     
-    return cropcalender_data_dict
+    # Group by point_id
+    batch_results = {}
+    for point_id in point_id_map.keys():
+        batch_results[point_id] = {}
+    
+    for feature in all_features:
+        point_id = feature['properties'].get('point_id')
+        if point_id and point_id in batch_results:
+            props = feature['properties']
+            # Extract calendar properties
+            calendar_dict = {prop: props.get(prop) for prop in calendar_properties if prop in props}
+            batch_results[point_id] = calendar_dict
+    
+    # Convert to expected format
+    for point_id, calendar_dict in batch_results.items():
+        if calendar_dict:
+            df = pd.DataFrame(calendar_dict, index=[0])
+            data_columns = [col for col in calendar_properties if col in df.columns]
+            
+            batch_results[point_id] = {
+                'modality': cfg.name,
+                'data': df[data_columns] if data_columns else df,
+                'variable_names': calendar_properties,
+            }
+        else:
+            # No data for this point
+            batch_results[point_id] = {
+                'modality': cfg.name,
+                'data': pd.DataFrame(columns=calendar_properties),
+                'variable_names': calendar_properties,
+            }
+    
+    log.info(f"Successfully extracted data for {len(batch_results)} points")
+    return batch_results

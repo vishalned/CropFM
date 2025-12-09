@@ -7,86 +7,95 @@ log = logging.getLogger(__name__)
 
 def sentinel2(
     cfg: DictConfig,
-    point: ee.Geometry.Point,
+    point_fc: ee.FeatureCollection,
+    batch_features: list,
     **kwargs
-) -> pd.DataFrame:
+) -> dict:
     '''
-    Extract Sentinel-2 data for a point.
+    Extract Sentinel-2 data for multiple points in batch.
     S2 - 10m resolution
 
     Args:
-        cfg: The configuration for the Sentinel-2 data. (DictConfig)
-        point: The point to extract data from. (ee.Geometry.Point)
-        **kwargs: Additional arguments.
-
+        cfg: The configuration for the Sentinel-2 data
+        point_fc: FeatureCollection of points to extract data from
+        batch_features: List of GeoJSON features (for point_id mapping)
+        **kwargs: Additional arguments
+    
     Returns:
-        pd.DataFrame: Extracted Sentinel-2 bands with metadata
+        dict: Dictionary mapping point_id to data dict
     '''
     log.setLevel(cfg.log_level)
-
-    log.info(f"Starting {cfg.name} extraction")
-    # Define date range
+    
+    log.info(f"Starting batch {cfg.name} extraction for {point_fc.size().getInfo()} points")
+    
     start_date = cfg.date_range.start_date
     end_date = cfg.date_range.end_date
-
-    # Sentinel-2 data processing
-
-    s2_collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
-    .filterDate(start_date, end_date) \
-    .filterBounds(point) \
-    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cfg.cloud_cover_threshold))
-
-    # Define S2 band names to filter
     s2_band_names = list(cfg.bands)
-
-    # Sample S2 image with filtered bands
+    
+    # Create point_id lookup
+    point_id_map = {feat['id']: i for i, feat in enumerate(batch_features)}
+    
+    # Sentinel-2 collection
+    s2_collection = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+                     .filterDate(start_date, end_date)
+                     .filterBounds(point_fc.geometry().bounds())  # Filter by bounding box
+                     .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cfg.cloud_cover_threshold)))
+    
     def sample_s2_image(image):
+        """Sample all points from a single image"""
         selected_image = image.select(s2_band_names)
-        pixel_value = selected_image.sample(
-            region=point,
+        # Use sampleRegions for multiple points
+        pixel_values = selected_image.sampleRegions(
+            collection=point_fc,
             scale=10,
-            numPixels=1
+            geometries=False  # Don't include geometries in output
         )
         
         def add_metadata(feature):
             return feature.set('date', image.date().format('YYYY-MM-dd'))
         
-        return pixel_value.map(add_metadata)
-
-    s2_samples = ee.ImageCollection(s2_collection).map(sample_s2_image).flatten()
-
-    # Print S2 sample information
-    log.debug('Number of Sentinel-2 samples: %s', s2_samples.size().getInfo())
-
-    # Convert S2 samples to pandas DataFrame
-    s2_samples_data = s2_samples.getInfo()
-    s2_features = s2_samples_data['features']
-
-    s2_data_rows = []
-    for feature in s2_features:
-        row = feature['properties'].copy()
-        s2_data_rows.append(row)
-
-    s2_data_dict = {
-        'modality': cfg.name,
-        'data': pd.DataFrame(s2_data_rows),
-        'variable_names': s2_band_names,
-        'timestamps': [feature['properties']['date'] for feature in s2_features]
-    }
-
-    data_columns = [col for col in s2_band_names if col in s2_data_dict['data'].columns]
-    s2_data_dict['data'] = s2_data_dict['data'][data_columns]
-
-    log.info(f"Successfully extracted {len(s2_data_dict['data'])} Sentinel-2 observations")
-
-    return s2_data_dict
-
-
-# if __name__ == '__main__':
-#     import ee
-#     ee.Initialize()
+        return pixel_values.map(add_metadata)
     
-#     cfg = DictConfig(OmegaConf.load('configs/data/modalities.yaml'))
-#     point = ee.Geometry.Point([10.659969917504554, 50.2844142988367])
-#     s2_df = sentinel2(cfg.sentinel2, point)
-#     print(s2_df)
+    # Process all images
+    s2_samples = s2_collection.map(sample_s2_image).flatten()
+    
+    log.debug(f'Number of Sentinel-2 samples: {s2_samples.size().getInfo()}')
+    
+    # Get all features
+    all_features = s2_samples.getInfo()['features']
+    
+    # Group by point_id
+    results = {point_id: {'data_rows': [], 'timestamps': []} for point_id in point_id_map.keys()}
+    
+    for feature in all_features:
+        point_id = feature['properties'].get('point_id')
+        if point_id and point_id in results:
+            row = {k: v for k, v in feature['properties'].items() 
+                   if k not in ['point_id']}  # Remove point_id from data
+            results[point_id]['data_rows'].append(row)
+            results[point_id]['timestamps'].append(feature['properties'].get('date'))
+    
+    # Convert to expected format
+    batch_results = {}
+    for point_id, data in results.items():
+        if data['data_rows']:
+            df = pd.DataFrame(data['data_rows'])
+            data_columns = [col for col in s2_band_names if col in df.columns]
+            
+            batch_results[point_id] = {
+                'modality': cfg.name,
+                'data': df[data_columns] if data_columns else df,
+                'variable_names': s2_band_names,
+                'timestamps': data['timestamps']
+            }
+        else:
+            # No data for this point
+            batch_results[point_id] = {
+                'modality': cfg.name,
+                'data': pd.DataFrame(columns=s2_band_names),
+                'variable_names': s2_band_names,
+                'timestamps': []
+            }
+    
+    log.info(f"Successfully extracted data for {len(batch_results)} points")
+    return batch_results

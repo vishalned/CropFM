@@ -7,28 +7,31 @@ log = logging.getLogger(__name__)
 
 def soil(
     cfg: DictConfig,
-    point: ee.Geometry.Point,
+    point_fc: ee.FeatureCollection,
+    batch_features: list,
     **kwargs
-) -> pd.DataFrame:
+) -> dict:
     """
-    Extract SoilGrids soil properties data for a point.
+    Extract SoilGrids soil properties data for multiple points in batch.
     SoilGrids - 250m resolution
 
     Args:
         cfg: Hydra config containing soil parameters
-        point: Geographic point to extract data from
+        point_fc: FeatureCollection of points to extract data from
+        batch_features: List of GeoJSON features (for point_id mapping)
         **kwargs: Additional parameters (can override config)
         
     Returns:
-        pd.DataFrame: Extracted soil properties data with metadata
+        dict: Dictionary mapping point_id to data dict
     """
-    
-    # Get config values with optional overrides from kwargs
     log.setLevel(cfg.log_level)
     variables = list(cfg.variables)
     depth_layers = list(cfg.depth_layers)
     
-    log.info(f"Starting SoilGrids extraction")
+    log.info(f"Starting batch SoilGrids extraction for {point_fc.size().getInfo()} points")
+    
+    # Create point_id lookup
+    point_id_map = {feat['id']: i for i, feat in enumerate(batch_features)}
     
     # SoilGrids asset mapping
     soil_assets = {
@@ -38,34 +41,64 @@ def soil(
         'soc': 'projects/soilgrids-isric/soc_mean'
     }
     
-    soil_data = {}
-    
-    for var in variables:      
-        log.debug(f"Processing soil property: {var}")
-        
-        # Load the soil property image
-        soil_image = ee.Image(soil_assets[var])
-
+    # Collect all band names we need
+    all_band_names = []
+    for var in variables:
         band_names = [f"{var}_{depth}_mean" for depth in depth_layers]
-
-        pixel_value = soil_image.select(band_names).sample(
-            region=point,
-            scale=250,
-            numPixels=1
-        )
-
-        sample_data = pixel_value.getInfo()
-
-        if sample_data['features']:
-            soil_data[var] = [sample_data['features'][0]['properties'][band_name] for band_name in band_names]
-            
-    df = pd.DataFrame(soil_data)
-    soil_data_dict = {
-        'modality': cfg.name,
-        'data': df,
-        'variable_names': variables,
-    }
-
-    log.info(f"Successfully extracted {len(soil_data_dict['data'])} soil property observations")
+        all_band_names.extend(band_names)
     
-    return soil_data_dict
+    # Create a composite image with all needed bands
+    soil_images = []
+    for var in variables:
+        soil_image = ee.Image(soil_assets[var])
+        band_names = [f"{var}_{depth}_mean" for depth in depth_layers]
+        soil_images.append(soil_image.select(band_names))
+    
+    # Combine all soil images
+    composite_image = ee.Image.cat(soil_images)
+    
+    # Sample all points at once
+    samples = composite_image.sampleRegions(
+        collection=point_fc,
+        scale=250,
+        geometries=False
+    )
+    
+    # Get all features
+    all_features = samples.getInfo()['features']
+    
+    # Group by point_id and organize data
+    batch_results = {}
+    for point_id in point_id_map.keys():
+        batch_results[point_id] = {'soil_data': {}}
+    
+    for feature in all_features:
+        point_id = feature['properties'].get('point_id')
+        if point_id and point_id in batch_results:
+            props = feature['properties']
+            # Organize by variable
+            for var in variables:
+                band_names = [f"{var}_{depth}_mean" for depth in depth_layers]
+                batch_results[point_id]['soil_data'][var] = [
+                    props.get(band_name) for band_name in band_names
+                ]
+    
+    # Convert to expected format
+    for point_id, data in batch_results.items():
+        if data['soil_data']:
+            df = pd.DataFrame(data['soil_data'])
+            batch_results[point_id] = {
+                'modality': cfg.name,
+                'data': df,
+                'variable_names': variables,
+            }
+        else:
+            # No data for this point
+            batch_results[point_id] = {
+                'modality': cfg.name,
+                'data': pd.DataFrame(columns=variables),
+                'variable_names': variables,
+            }
+    
+    log.info(f"Successfully extracted data for {len(batch_results)} points")
+    return batch_results

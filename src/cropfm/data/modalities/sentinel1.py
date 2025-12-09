@@ -7,77 +7,97 @@ log = logging.getLogger(__name__)
 
 def sentinel1(
     cfg: DictConfig,
-    point: ee.Geometry.Point,
+    point_fc: ee.FeatureCollection,
+    batch_features: list,
     **kwargs
-) -> pd.DataFrame:
+) -> dict:
     '''
-    Extract Sentinel-1 data for a point.
+    Extract Sentinel-1 data for multiple points in batch.
     S1 - 10m resolution
 
     Args:
-        cfg: The configuration for the Sentinel-1 data. (DictConfig)
-        point: The point to extract data from. (ee.Geometry.Point)
+        cfg: The configuration for the Sentinel-1 data
+        point_fc: FeatureCollection of points to extract data from
+        batch_features: List of GeoJSON features (for point_id mapping)
         **kwargs: Additional arguments (can override config).
-
+    
     Returns:
-        pd.DataFrame: Extracted Sentinel-1 bands with metadata
+        dict: Dictionary mapping point_id to data dict
     '''
     log.setLevel(cfg.log_level)
-
-    log.info(f"Starting {cfg.name} extraction")
-    # Define date range
+    
+    log.info(f"Starting batch {cfg.name} extraction for {point_fc.size().getInfo()} points")
+    
     start_date = cfg.date_range.start_date
     end_date = cfg.date_range.end_date
-
-    # Sentinel-1 data processing
-    s1_collection = ee.ImageCollection('COPERNICUS/S1_GRD') \
-    .filterDate(start_date, end_date) \
-    .filterBounds(point) \
-    .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV')) \
-    .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH')) \
-    .filter(ee.Filter.eq('instrumentMode', 'IW'))
-
-    # Define S1 band names to filter
     s1_band_names = list(cfg.bands)
-
-    # Sample S1 image with filtered bands
+    
+    # Create point_id lookup
+    point_id_map = {feat['id']: i for i, feat in enumerate(batch_features)}
+    
+    # Sentinel-1 collection
+    s1_collection = (ee.ImageCollection('COPERNICUS/S1_GRD')
+                     .filterDate(start_date, end_date)
+                     .filterBounds(point_fc.geometry().bounds())  # Filter by bounding box
+                     .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
+                     .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH'))
+                     .filter(ee.Filter.eq('instrumentMode', 'IW')))
+    
     def sample_s1_image(image):
+        """Sample all points from a single image"""
         selected_image = image.select(s1_band_names)
-        pixel_value = selected_image.sample(
-            region=point,
+        # Use sampleRegions for multiple points
+        pixel_values = selected_image.sampleRegions(
+            collection=point_fc,
             scale=10,
-            numPixels=1
+            geometries=False  # Don't include geometries in output
         )
         
         def add_metadata(feature):
             return feature.set('date', image.date().format('YYYY-MM-dd'))
         
-        return pixel_value.map(add_metadata)
-
-    s1_samples = ee.ImageCollection(s1_collection).map(sample_s1_image).flatten()
-
-    # Print S1 sample information
-    log.debug('Number of Sentinel-1 samples: %s', s1_samples.size().getInfo())
-
-    # Convert S1 samples to pandas DataFrame
-    s1_samples_data = s1_samples.getInfo()
-    s1_features = s1_samples_data['features']
-
-    s1_data_rows = []
-    for feature in s1_features:
-        row = feature['properties'].copy()
-        s1_data_rows.append(row)
-
-    s1_data_dict = {
-        'modality': cfg.name,
-        'data': pd.DataFrame(s1_data_rows),
-        'variable_names': s1_band_names,
-        'timestamps': [feature['properties']['date'] for feature in s1_features]
-    }
-
-    data_columns = [col for col in s1_band_names if col in s1_data_dict['data'].columns]
-    s1_data_dict['data'] = s1_data_dict['data'][data_columns]
-
-    log.info(f"Successfully extracted {len(s1_data_dict['data'])} Sentinel-1 observations")
-
-    return s1_data_dict
+        return pixel_values.map(add_metadata)
+    
+    # Process all images
+    s1_samples = s1_collection.map(sample_s1_image).flatten()
+    
+    log.debug(f'Number of Sentinel-1 samples: {s1_samples.size().getInfo()}')
+    
+    # Get all features
+    all_features = s1_samples.getInfo()['features']
+    
+    # Group by point_id
+    results = {point_id: {'data_rows': [], 'timestamps': []} for point_id in point_id_map.keys()}
+    
+    for feature in all_features:
+        point_id = feature['properties'].get('point_id')
+        if point_id and point_id in results:
+            row = {k: v for k, v in feature['properties'].items() 
+                   if k not in ['point_id']}  # Remove point_id from data
+            results[point_id]['data_rows'].append(row)
+            results[point_id]['timestamps'].append(feature['properties'].get('date'))
+    
+    # Convert to expected format
+    batch_results = {}
+    for point_id, data in results.items():
+        if data['data_rows']:
+            df = pd.DataFrame(data['data_rows'])
+            data_columns = [col for col in s1_band_names if col in df.columns]
+            
+            batch_results[point_id] = {
+                'modality': cfg.name,
+                'data': df[data_columns] if data_columns else df,
+                'variable_names': s1_band_names,
+                'timestamps': data['timestamps']
+            }
+        else:
+            # No data for this point
+            batch_results[point_id] = {
+                'modality': cfg.name,
+                'data': pd.DataFrame(columns=s1_band_names),
+                'variable_names': s1_band_names,
+                'timestamps': []
+            }
+    
+    log.info(f"Successfully extracted data for {len(batch_results)} points")
+    return batch_results

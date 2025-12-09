@@ -12,6 +12,9 @@ zarr_path: /lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1
 total_batches: 40     # Total number of batches (for SLURM array jobs)
 error_log_path: /lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/failed_points.txt  # Path to error log file
 
+# GEE batch processing parameters
+batch_size: 50       # Number of points to process in each GEE batch (adjust based on GEE limits)
+
 modalities: # what modalities to download, name must match the function name in the modalities.py file
   - agera5
   - sentinel2

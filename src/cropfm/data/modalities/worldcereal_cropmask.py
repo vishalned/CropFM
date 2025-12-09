@@ -8,11 +8,12 @@ log = logging.getLogger(__name__)
 
 def worldcereal_cropmask(
     cfg: DictConfig,
-    point: ee.Geometry.Point,
+    point_fc: ee.FeatureCollection,
+    batch_features: list,
     **kwargs
-) -> pd.DataFrame:
+) -> dict:
     '''
-    Extract WorldCereal data for a point.
+    Extract WorldCereal data for multiple points in batch.
         - 2021 model products
     Key for the crop mask is:
     - 0: No crop
@@ -22,16 +23,20 @@ def worldcereal_cropmask(
 
     Args:
         cfg: Hydra config containing worldcereal parameters
-        point: Geographic point to extract data from
+        point_fc: FeatureCollection of points to extract data from
+        batch_features: List of GeoJSON features (for point_id mapping)
         **kwargs: Additional parameters (can override config)
         
     Returns:
-        pd.DataFrame: Extracted WorldCereal data with metadata
+        dict: Dictionary mapping point_id to data dict
     '''
     log.setLevel(cfg.log_level)
     
-    log.info(f"Starting {cfg.name} extraction")
+    log.info(f"Starting batch {cfg.name} extraction for {point_fc.size().getInfo()} points")
 
+    # Create point_id lookup
+    point_id_map = {feat['id']: i for i, feat in enumerate(batch_features)}
+    
     # Load WorldCereal 2021 model products image collection
     dataset = ee.ImageCollection('ESA/WorldCereal/2021/MODELS/v100')
     # Load AEZ table (FeatureCollection)
@@ -65,32 +70,69 @@ def worldcereal_cropmask(
     crop_mask = crop_mask.where(winter_class.gt(0).And(crop_mask.eq(0)), 2)
     crop_mask = crop_mask.where(spring_class.gt(0).And(crop_mask.eq(0)), 3)
 
-    # Sample the crop mask at the point
-    sample_fc = crop_mask.sample(region=point, scale=10, numPixels=1)
-
-    # Get the crop mask value
-    first_feature = sample_fc.first()
-    crop_value = first_feature.get('crop_mask').getInfo()
-
-    ###### AEZ extraction ######
-    # Filter AEZ polygons intersecting the point
-    aez_for_point = aez_table.filterBounds(point)
-
-    # Get AEZ ID property for the first feature (assuming one polygon)
-    aez_list = aez_for_point.aggregate_array('aez_id').getInfo()
-    aez_id = aez_list[0] if aez_list else None
-
-    df = pd.DataFrame({
-        'aez_id': [aez_id],
-        'crop_mask': [crop_value],
-    }, index=[0])
-
-    cropmask_data_dict = {
-        'modality': cfg.name,
-        'data': df,
-        'variable_names': ['aez_id', 'crop_mask'],
-    }
-
-    log.info(f"Successfully extracted {len(cropmask_data_dict['data'])} WorldCereal observations")
-
-    return cropmask_data_dict
+    # Batch sample the crop mask at all points
+    samples = crop_mask.sampleRegions(
+        collection=point_fc,
+        scale=10,
+        geometries=False
+    )
+    
+    # Get all features
+    all_features = samples.getInfo()['features']
+    
+    # Group crop_mask values by point_id
+    crop_mask_results = {}
+    for point_id in point_id_map.keys():
+        crop_mask_results[point_id] = None
+    
+    for feature in all_features:
+        point_id = feature['properties'].get('point_id')
+        if point_id and point_id in crop_mask_results:
+            crop_value = feature['properties'].get('crop_mask')
+            crop_mask_results[point_id] = crop_value
+    
+    # For AEZ, we need to do spatial join - batch process by filtering AEZ table with bounds
+    # Get bounding box of all points
+    bounds = point_fc.geometry().bounds()
+    aez_in_bounds = aez_table.filterBounds(bounds)
+    
+    # For each point, find intersecting AEZ
+    # We'll use a spatial join approach
+    def add_aez_id(feature):
+        point_geom = feature.geometry()
+        # Find AEZ polygons that intersect this point
+        intersecting_aez = aez_in_bounds.filterBounds(point_geom)
+        aez_id = ee.Algorithms.If(
+            intersecting_aez.size().gt(0),
+            intersecting_aez.first().get('aez_id'),
+            None
+        )
+        return feature.set('aez_id', aez_id)
+    
+    point_fc_with_aez = point_fc.map(add_aez_id)
+    
+    # Get AEZ IDs
+    aez_features = point_fc_with_aez.getInfo()['features']
+    aez_results = {}
+    for feature in aez_features:
+        point_id = feature['properties'].get('point_id')
+        aez_id = feature['properties'].get('aez_id')
+        if point_id:
+            aez_results[point_id] = aez_id
+    
+    # Combine results
+    batch_results = {}
+    for point_id in point_id_map.keys():
+        df = pd.DataFrame({
+            'aez_id': [aez_results.get(point_id)],
+            'crop_mask': [crop_mask_results.get(point_id)],
+        }, index=[0])
+        
+        batch_results[point_id] = {
+            'modality': cfg.name,
+            'data': df,
+            'variable_names': ['aez_id', 'crop_mask'],
+        }
+    
+    log.info(f"Successfully extracted data for {len(batch_results)} points")
+    return batch_results
