@@ -100,6 +100,7 @@ def encode_weeks(timestamps, max_weeks=52):
 def remove_trailing_nans(data, timestamps, valid_mask):
     """
     Remove trailing NaNs from data, timestamps, and valid_mask.
+    Uses the valid_mask to determine which indices to keep.
     
     Args:
         data: (n_samples, max_time, n_vars) array
@@ -119,22 +120,19 @@ def remove_trailing_nans(data, timestamps, valid_mask):
         sample_timestamps = timestamps[i]  # (max_time,)
         sample_valid_mask = valid_mask[i]  # (max_time,)
         
-        # Find last non-NaN index across all variables
-        # Check if any variable has a non-NaN value at each time step
-        has_valid_data = ~np.isnan(sample_data).all(axis=1)  # (max_time,)
+        # Use valid_mask to find valid indices
+        valid_indices = np.where(sample_valid_mask)[0]
         
-        # Find the last index with valid data
-        valid_indices = np.where(has_valid_data)[0]
         if len(valid_indices) == 0:
             # No valid data, return empty arrays
             trimmed_data_list.append(np.array([]).reshape(0, n_vars))
             trimmed_timestamps_list.append(np.array([]))
             trimmed_valid_mask_list.append(np.array([]))
         else:
-            last_valid_idx = valid_indices[-1] + 1 # last index with valid data + 1 to get the next index
-            trimmed_data_list.append(sample_data[:last_valid_idx])
-            trimmed_timestamps_list.append(sample_timestamps[:last_valid_idx])
-            trimmed_valid_mask_list.append(sample_valid_mask[:last_valid_idx])
+            # Use only the indices where valid_mask is True
+            trimmed_data_list.append(sample_data[valid_indices])
+            trimmed_timestamps_list.append(sample_timestamps[valid_indices])
+            trimmed_valid_mask_list.append(sample_valid_mask[valid_indices])
     
     return trimmed_data_list, trimmed_timestamps_list, trimmed_valid_mask_list
 
