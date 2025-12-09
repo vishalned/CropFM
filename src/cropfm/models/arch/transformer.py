@@ -33,8 +33,10 @@ class Attention(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv.unbind(0)
+        qkv = self.qkv(x) # [B, N, 3*dim]
+        qkv = qkv.reshape(B, N, 3, self.num_heads, self.head_dim) # [B, N, 3, num_heads, head_dim]
+        qkv = qkv.permute(2, 0, 3, 1, 4) # [3, B, num_heads, N, head_dim]
+        q, k, v = qkv.unbind(0) # each [B, num_heads, N, head_dim]
 
         if self.fast_attn:
             x = F.scaled_dot_product_attention(
