@@ -34,7 +34,7 @@ def main(cfg: DictConfig):
     log.info(f"Loaded GeoJSON with {len(geojson_data['features'])} features")
     
     # Select first 1 features for testing
-    selected_features = geojson_data['features'][:2]
+    selected_features = geojson_data['features'][:200]
     
     log.info(f"Selected {len(selected_features)} points for testing")
     

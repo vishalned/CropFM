@@ -214,6 +214,7 @@ def get_week_key(dt):
 def aggregate_to_weekly(data, timestamps, aggregation_method='mean'):
     """
     Aggregate temporal data to weekly resolution using pandas resample (much faster).
+    Always returns exactly 52 weeks, interpolating missing weeks.
     
     Args:
         data: (max_time, n_vars) array
@@ -221,35 +222,40 @@ def aggregate_to_weekly(data, timestamps, aggregation_method='mean'):
         aggregation_method: 'mean', 'median', or 'max'
     
     Returns:
-        weekly_data: (n_weeks, n_vars) array
-        weekly_timestamps: (n_weeks,) array of week keys
-        weekly_valid_mask: (n_weeks,) boolean array
+        weekly_data: (52, n_vars) array - always 52 weeks
+        weekly_timestamps: (52,) array of week keys - always 52 weeks
+        weekly_valid_mask: (52,) boolean array - True for weeks with original data, False for interpolated
     """
     if len(data) == 0:
-        # Handle empty data - try to get n_vars from shape if available
         try:
             n_vars = data.shape[1] if len(data.shape) > 1 else 0
         except (IndexError, AttributeError):
             n_vars = 0
-        return np.array([]).reshape(0, n_vars), np.array([]), np.array([])
+        return (np.full((52, n_vars), np.nan, dtype=np.float32), 
+                np.array(['NA'] * 52, dtype='U20'), 
+                np.zeros(52, dtype=bool))
     
-    # Convert timestamps to pandas DatetimeIndex (vectorized, much faster)
+    # Convert timestamps to pandas DatetimeIndex
     timestamps_series = pd.to_datetime(timestamps, errors='coerce')
     valid_mask = ~timestamps_series.isna()
     
     if not np.any(valid_mask):
         n_vars = data.shape[1] if len(data.shape) > 1 else 0
-        return np.array([]).reshape(0, n_vars), np.array([]), np.array([])
+        return (np.full((52, n_vars), np.nan, dtype=np.float32), 
+                np.array(['NA'] * 52, dtype='U20'), 
+                np.zeros(52, dtype=bool))
     
     # Filter to valid timestamps and data
     valid_timestamps = timestamps_series[valid_mask]
     valid_data = data[valid_mask]
     
+    # Determine the year from the first timestamp
+    year = valid_timestamps[0].year
+    
     # Create DataFrame with DatetimeIndex
     df = pd.DataFrame(valid_data, index=valid_timestamps)
     
     # Resample to weekly and aggregate
-    # 'W' means weekly, starting on Monday (ISO week)
     if aggregation_method == 'mean':
         weekly_df = df.resample('W').mean()
     elif aggregation_method == 'median':
@@ -261,27 +267,57 @@ def aggregate_to_weekly(data, timestamps, aggregation_method='mean'):
     
     if len(weekly_df) == 0:
         n_vars = data.shape[1] if len(data.shape) > 1 else 0
-        return np.array([]).reshape(0, n_vars), np.array([]), np.array([])
+        return (np.full((52, n_vars), np.nan, dtype=np.float32), 
+                np.array(['NA'] * 52, dtype='U20'), 
+                np.zeros(52, dtype=bool))
     
-    # Convert back to numpy arrays
-    weekly_data = weekly_df.values  # (n_weeks, n_vars)
+    # Create week keys for all 52 weeks: ["2021-W01", "2021-W02", ..., "2021-W52"]
+    all_week_keys = [f"{year}-W{i:02d}" for i in range(1, 53)]
     
-    # Generate week keys from the resampled index
-    weekly_timestamps = []
+    # Get week keys from aggregated data
+    aggregated_week_keys = []
     for dt in weekly_df.index:
         week_key = get_week_key(dt)
-        weekly_timestamps.append(week_key)
+        aggregated_week_keys.append(week_key)
     
-    weekly_timestamps = np.array(weekly_timestamps)
-    weekly_valid_mask = np.ones(len(weekly_timestamps), dtype=bool)
+    # Create full 52-week arrays
+    n_vars = weekly_df.shape[1]
+    weekly_data_full = np.full((52, n_vars), np.nan, dtype=np.float32)
+    weekly_valid_mask = np.zeros(52, dtype=bool)
     
-    return weekly_data, weekly_timestamps, weekly_valid_mask
+    # Map aggregated data to correct week positions
+    for week_key, row_data in zip(aggregated_week_keys, weekly_df.values):
+        if week_key in all_week_keys:
+            week_idx = all_week_keys.index(week_key)
+            weekly_data_full[week_idx] = row_data
+            weekly_valid_mask[week_idx] = True
+    
+    # Interpolate missing weeks for each variable
+    for var_idx in range(n_vars):
+        var_data = weekly_data_full[:, var_idx]
+        if np.any(np.isnan(var_data)):
+            # Use linear interpolation
+            valid_indices = np.where(~np.isnan(var_data))[0]
+            if len(valid_indices) > 1:
+                interp_func = interp1d(valid_indices, var_data[valid_indices], 
+                                     kind='cubic', fill_value='extrapolate', 
+                                     bounds_error=False)
+                all_indices = np.arange(52)
+                var_data_interp = interp_func(all_indices)
+                weekly_data_full[:, var_idx] = var_data_interp
+            elif len(valid_indices) == 1:
+                # Only one data point. This should not happen.
+                raise ValueError("only one valid data point. check the data.")
+    
+    weekly_timestamps = np.array(all_week_keys)
+    
+    return weekly_data_full, weekly_timestamps, weekly_valid_mask
 
-# def aggregate_to_daily(data, timestamps, valid_mask, aggregation_method='mean'):
-#     raise NotImplementedError("Not implemented yet")
+def aggregate_to_daily(data, timestamps, valid_mask, aggregation_method='mean'):
+    raise NotImplementedError("Not implemented yet")
 
-# def aggregate_to_monthly(data, timestamps, valid_mask, aggregation_method='mean'):
-#     raise NotImplementedError("Not implemented yet")
+def aggregate_to_monthly(data, timestamps, valid_mask, aggregation_method='mean'):
+    raise NotImplementedError("Not implemented yet")
 
 
 def main(args):
@@ -324,7 +360,7 @@ def main(args):
         for var in root['static_modalities'][modality].keys():
             print(f"    Variable: {var}")
             var_data = root['static_modalities'][modality][var][:]
-            chunks = (1000, var_data.shape[1]) if len(var_data.shape) > 1 else (1000,)
+            chunks = (10000, var_data.shape[1]) if len(var_data.shape) > 1 else (10000,)
             root_out['static_modalities'][modality].create_array(
                 var, 
                 data=var_data, 
@@ -334,8 +370,11 @@ def main(args):
     # temporal modalities
     temporal_group = root_out.create_group('temporal_modalities')
     for modality_name in root['temporal_modalities'].keys():
+    # for modality_name in ['sentinel2']:
         root_out['temporal_modalities'].create_group(modality_name)
         variable_names = root['temporal_modalities'][modality_name]['variable_names'][:]
+
+
         data = root['temporal_modalities'][modality_name]['data'][:]  # (n_samples, max_time, n_vars)
         timestamps = root['temporal_modalities'][modality_name]['timestamps'][:]  # (n_samples, max_time)
         valid_mask = root['temporal_modalities'][modality_name]['valid_mask'][:]  # (n_samples, max_time)
@@ -383,11 +422,6 @@ def main(args):
                 aggregated_data_out[i, :n_weeks_to_use] = weekly_data[:n_weeks_to_use]
                 aggregated_timestamps_out[i, :n_weeks_to_use] = weekly_timestamps[:n_weeks_to_use]
                 aggregated_valid_mask_out[i, :n_weeks_to_use] = weekly_valid_mask[:n_weeks_to_use]
-
-        print(f"Aggregated data")
-        print(f"    Aggregated data shape: {aggregated_data_out.shape}")
-        print(f"    Aggregated timestamps shape: {aggregated_timestamps_out.shape}")
-        print(f"    Aggregated valid mask shape: {aggregated_valid_mask_out.shape}")
 
         
         # Step 2: Check for NaN values in aggregated data (only in valid positions)

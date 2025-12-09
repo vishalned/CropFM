@@ -59,22 +59,20 @@ def worldcereal_cropcalender(
         # Find AEZ polygons that intersect this point
         intersecting_aez = aez_in_bounds.filterBounds(point_geom)
         
-        # Get the first intersecting AEZ (should be only one)
-        calendar_feature = ee.Algorithms.If(
-            intersecting_aez.size().gt(0),
-            intersecting_aez.first().select(calendar_properties),
-            None
-        )
+        # Get the first intersecting AEZ
+        aez_feature = intersecting_aez.first()
         
-        # Extract properties
-        def extract_props(cal_feat):
-            return feature.setMulti(cal_feat.toDictionary())
+        # Extract each property individually using .get() instead of .select()
+        result_feature = feature
+        for prop in calendar_properties:
+            prop_value = ee.Algorithms.If(
+                intersecting_aez.size().gt(0),
+                aez_feature.get(prop),
+                None
+            )
+            result_feature = result_feature.set(prop, prop_value)
         
-        return ee.Algorithms.If(
-            calendar_feature,
-            extract_props(calendar_feature),
-            feature  # If no AEZ found, return original feature
-        )
+        return result_feature
     
     point_fc_with_calendar = point_fc.map(add_calendar_properties)
     
