@@ -136,6 +136,66 @@ def remove_trailing_nans(data, timestamps, valid_mask):
     
     return trimmed_data_list, trimmed_timestamps_list, trimmed_valid_mask_list
 
+def interpolate_no_data_values(data, no_data_value, interpolation_method='linear'):
+    """
+    Interpolate no_data values (typically 0) in the data.
+    
+    Args:
+        data: (max_time, n_vars) array
+        no_data_value: value to replace (e.g., 0)
+        interpolation_method: 'linear' or 'cubic'
+    
+    Returns:
+        data with no_data values interpolated
+    """
+    if len(data) == 0:
+        return data
+    
+    interpolated_data = data.copy()
+    n_time, n_vars = data.shape
+    
+    for var_idx in range(n_vars):
+        var_data = data[:, var_idx]
+        
+        # Find indices where data is valid (not NaN and not no_data_value)
+        valid_mask = (~np.isnan(var_data)) & (var_data != no_data_value)
+        valid_indices = np.where(valid_mask)[0]
+        
+        # Find indices that need interpolation
+        invalid_mask = (np.isnan(var_data)) | (var_data == no_data_value)
+        invalid_indices = np.where(invalid_mask)[0]
+        
+        if len(invalid_indices) == 0:
+            continue
+        
+        # Create interpolation function
+        try:
+            if interpolation_method == 'cubic' and len(valid_indices) >= 4:
+                interp_func = interp1d(
+                    valid_indices, 
+                    var_data[valid_indices], 
+                    kind='cubic',
+                    fill_value='extrapolate',
+                    bounds_error=False
+                )
+            else:
+                interp_func = interp1d(
+                    valid_indices, 
+                    var_data[valid_indices], 
+                    kind='linear',
+                    fill_value='extrapolate',
+                    bounds_error=False
+                )
+            
+            # Interpolate only for invalid indices
+            interpolated_values = interp_func(invalid_indices)
+            interpolated_data[invalid_indices, var_idx] = interpolated_values
+        except:
+            # If interpolation fails, leave as is
+            pass
+    
+    return interpolated_data
+
 
 def get_week_key(dt):
     """Get year-week key for grouping"""
@@ -143,7 +203,7 @@ def get_week_key(dt):
         return None
     return f"{dt.year}-W{dt.isocalendar()[1]:02d}"
 
-def aggregate_to_weekly(data, timestamps, modality_name, aggregation_method='mean'):
+def aggregate_to_weekly(data, timestamps, aggregation_method='mean'):
     """
     Aggregate temporal data to weekly resolution using pandas resample (much faster).
     Always returns exactly 52 weeks, interpolating missing weeks.
@@ -180,12 +240,6 @@ def aggregate_to_weekly(data, timestamps, modality_name, aggregation_method='mea
     # Filter to valid timestamps and data
     valid_timestamps = timestamps_series[valid_mask]
     valid_data = data[valid_mask]
-
-    # Treat modality-specific no_data values as NaN before aggregation
-    if modality_name == 'fapar':
-        valid_data = np.where(valid_data == NO_DATA_VALUE.get('fapar', 0), np.nan, valid_data)
-    elif modality_name == 'sentinel2':
-        valid_data = np.where(valid_data == NO_DATA_VALUE.get('sentinel2', 0), np.nan, valid_data)
     
     # Determine the year from the first timestamp
     year = valid_timestamps[0].year
@@ -228,8 +282,32 @@ def aggregate_to_weekly(data, timestamps, modality_name, aggregation_method='mea
         if week_key in all_week_keys:
             week_idx = all_week_keys.index(week_key)
             weekly_data_full[week_idx] = row_data
-            # mark valid if any non-NaN value exists in this week
-            weekly_valid_mask[week_idx] = ~np.isnan(row_data).all()
+            weekly_valid_mask[week_idx] = True
+    
+    # Interpolate missing weeks for each variable
+    for var_idx in range(n_vars):
+        var_data = weekly_data_full[:, var_idx]
+        if np.any(np.isnan(var_data)):
+            valid_indices = np.where(~np.isnan(var_data))[0]
+            if len(valid_indices) > 1:
+                if len(valid_indices) < 10:
+                    print('----------------------------------- less than 10 valid indices -----------------------------------')
+                # Use linear interpolation (works with 2+ points, more robust than cubic)
+                try:
+                    interp_func = interp1d(valid_indices, var_data[valid_indices], 
+                                         kind='linear', fill_value='extrapolate', 
+                                         bounds_error=False)
+                    all_indices = np.arange(52)
+                    var_data_interp = interp_func(all_indices)
+                    weekly_data_full[:, var_idx] = var_data_interp
+                except Exception as e:
+                    # If interpolation fails, leave as NaN
+                    print(f"Warning: Interpolation failed for variable {var_idx}: {e}")
+            elif len(valid_indices) == 1:
+                # Only one data point - repeat for all 52 weeks
+                print('----------------------------------------------------- only one data point -----------------------------------------------------')
+                single_value = var_data[valid_indices[0]]
+                weekly_data_full[:, var_idx] = single_value
     
     weekly_timestamps = np.array(all_week_keys)
     
@@ -332,8 +410,7 @@ def main(args):
             # Aggregate to weekly
             weekly_data, weekly_timestamps, weekly_valid_mask = aggregate_to_weekly(
                 sample_data, 
-                sample_timestamps,
-                modality_name,
+                sample_timestamps, 
                 aggregation_method='mean' # hardcoded for now
             )
             
@@ -346,7 +423,126 @@ def main(args):
                 aggregated_timestamps_out[i, :n_weeks_to_use] = weekly_timestamps[:n_weeks_to_use]
                 aggregated_valid_mask_out[i, :n_weeks_to_use] = weekly_valid_mask[:n_weeks_to_use]
 
-        # Step 2 & 3 removed: we keep NaNs for missing/no_data and rely on valid_mask to indicate usable entries
+        
+        # Step 2: Check for NaN values in aggregated data (only in valid positions)
+        print(f"  Checking for NaN values after aggregation...")
+        # Only check positions where valid_mask is True
+        valid_positions = aggregated_valid_mask_out
+        if np.any(valid_positions):
+            valid_data = aggregated_data_out[valid_positions]
+            nan_count = np.sum(np.isnan(valid_data))
+            if nan_count > 0:
+                total_valid = valid_data.size
+                nan_percentage = nan_count / total_valid * 100
+                
+                print(f"\n  ⚠ NaN DETECTION DETAILS for {modality_name}:")
+                print(f"    Total NaN values: {nan_count:,} / {total_valid:,} ({nan_percentage:.2f}%)")
+                
+                # Check NaN distribution across variables
+                print(f"\n    NaN distribution by variable:")
+                for var_idx, var_name in enumerate(variable_names):
+                    var_data = aggregated_data_out[:, :, var_idx]  # (n_samples, max_weeks)
+                    var_valid_data = var_data[valid_positions]
+                    var_nan_count = np.sum(np.isnan(var_valid_data))
+                    if var_nan_count > 0:
+                        var_nan_pct = var_nan_count / len(var_valid_data) * 100
+                        print(f"      {var_name}: {var_nan_count:,} NaNs ({var_nan_pct:.2f}%)")
+                
+                # Find samples with NaNs
+                samples_with_nans = []
+                for i in range(n_samples):
+                    sample_data = aggregated_data_out[i]  # (max_weeks, n_vars)
+                    sample_mask = aggregated_valid_mask_out[i]  # (max_weeks,)
+                    if np.any(sample_mask):
+                        sample_valid_data = sample_data[sample_mask]
+                        if np.any(np.isnan(sample_valid_data)):
+                            nan_in_sample = np.sum(np.isnan(sample_valid_data))
+                            total_in_sample = sample_valid_data.size
+                            samples_with_nans.append((i, nan_in_sample, total_in_sample))
+                
+                print(f"\n    Samples with NaNs: {len(samples_with_nans):,} / {n_samples:,} ({len(samples_with_nans)/n_samples*100:.2f}%)")
+                
+                # Show first 10 samples with NaNs
+                if len(samples_with_nans) > 0:
+                    print(f"\n    First 10 samples with NaNs:")
+                    for sample_idx, nan_count_sample, total_count_sample in samples_with_nans[:10]:
+                        nan_pct_sample = nan_count_sample / total_count_sample * 100
+                        print(f"      Sample {sample_idx}: {nan_count_sample}/{total_count_sample} NaNs ({nan_pct_sample:.2f}%)")
+                    
+                    # Show detailed example of first sample with NaNs
+                    example_idx = samples_with_nans[0][0]
+                    example_data = aggregated_data_out[example_idx]  # (max_weeks, n_vars)
+                    example_mask = aggregated_valid_mask_out[example_idx]  # (max_weeks,)
+                    example_timestamps = aggregated_timestamps_out[example_idx]  # (max_weeks,)
+                    
+                    print(f"\n    Example sample {example_idx} details:")
+                    print(f"      Valid weeks: {np.sum(example_mask)}")
+                    valid_weeks = np.where(example_mask)[0]
+                    
+                    # Check which weeks have NaNs
+                    weeks_with_nans = []
+                    for week_idx in valid_weeks:
+                        week_data = example_data[week_idx]  # (n_vars,)
+                        if np.any(np.isnan(week_data)):
+                            nan_var_indices = np.where(np.isnan(week_data))[0]
+                            nan_var_names = [variable_names[i] for i in nan_var_indices]
+                            weeks_with_nans.append((week_idx, example_timestamps[week_idx], nan_var_names))
+                    
+                    if len(weeks_with_nans) > 0:
+                        print(f"      Weeks with NaNs: {len(weeks_with_nans)}")
+                        print(f"      First 5 weeks with NaNs:")
+                        for week_idx, ts, nan_var_names in weeks_with_nans[:5]:
+                            print(f"        Week {week_idx} ({ts}): NaNs in {nan_var_names}")
+                    
+                    # Show full data for first few valid weeks
+                    print(f"\n      Data for first 5 valid weeks:")
+                    for week_idx in valid_weeks[:5]:
+                        week_data = example_data[week_idx]
+                        ts = example_timestamps[week_idx]
+                        nan_mask = np.isnan(week_data)
+                        print(f"        Week {week_idx} ({ts}): {week_data} (NaNs: {np.sum(nan_mask)})")
+                
+                # Check NaN distribution across weeks
+                print(f"\n    NaN distribution across weeks:")
+                for week_idx in range(max_timesteps):
+                    week_data = aggregated_data_out[:, week_idx, :]  # (n_samples, n_vars)
+                    week_mask = aggregated_valid_mask_out[:, week_idx]  # (n_samples,)
+                    if np.any(week_mask):
+                        week_valid_data = week_data[week_mask]
+                        week_nan_count = np.sum(np.isnan(week_valid_data))
+                        if week_nan_count > 0:
+                            week_nan_pct = week_nan_count / week_valid_data.size * 100
+                            print(f"      Week {week_idx}: {week_nan_count:,} NaNs ({week_nan_pct:.2f}%)")
+                
+                raise ValueError(
+                    f"\nFound {nan_count:,}/{total_valid:,} NaN values ({nan_percentage:.2f}%) "
+                    f"in aggregated data for {modality_name}. This should not happen after aggregation.\n"
+                    f"See detailed statistics above for more information."
+                )
+            else:
+                print(f"  ✓ No NaN values found in aggregated data")
+        else:
+            print(f"  ⚠ No valid data positions found")
+        
+        # Step 3: Clean the aggregated data (interpolate no_data values)
+        print(f"  Cleaning aggregated data (interpolating no_data values)...")
+        no_data_value = NO_DATA_VALUE.get(modality_name, 0)
+        for i in range(n_samples):
+            sample_weekly_data = aggregated_data_out[i]  # (max_timesteps, n_vars)
+            sample_valid_mask = aggregated_valid_mask_out[i]  # (max_timesteps,)
+            
+            # Only clean valid positions
+            if np.any(sample_valid_mask):
+                valid_indices = np.where(sample_valid_mask)[0]
+                if len(valid_indices) > 0:
+                    valid_data = sample_weekly_data[valid_indices]  # (n_valid_weeks, n_vars)
+                    cleaned_data = interpolate_no_data_values(
+                        valid_data,
+                        no_data_value,
+                        interpolation_method='linear'
+                    )
+                    aggregated_data_out[i, valid_indices] = cleaned_data
+        
         root_out['temporal_modalities'][modality_name].create_array(
             'data', 
             data=aggregated_data_out, 

@@ -135,8 +135,8 @@ def compute_temporal_stats(root):
     return stats
 
 def main():
-    input_zarr_path = '/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200_merged.zarr'
-    stats_output_path = Path('/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/normalization_stats_raw.json')
+    input_zarr_path = '/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200_merged_cleaned.zarr'
+    stats_output_path = Path('/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/normalization_stats.json')
     
     print("=" * 80)
     print("COMPUTE NORMALIZATION STATISTICS")
