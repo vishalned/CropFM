@@ -47,11 +47,35 @@ logger:
   project: cropfm-mae
   name: mae-baseline
 
-# Data configuration (placeholder - to be implemented)
-# data:
-#   batch_size: 32
-#   num_workers: 4
-#   train_split: 0.8
-#   val_split: 0.1
-#   test_split: 0.1
+# Data configuration
+data:
+  zarr_path: /lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200_merged_cleaned.zarr
+  modalities:
+    - agera5
+    - sentinel1
+    - sentinel2
+    - fapar
+    - soil
+    - elevation
+    - worldcereal_cropmask
+    - worldcereal_cropcalender
+
+  # NEW: Specify which bands/variables to use for each modality
+  modality_bands:
+    agera5: [0, 1, 2, 3, 4, 5, 6, 7]  # All 8 variables, or select subset: [0, 1, 2]
+    sentinel1: [0, 1, 2]  # All 3 bands (VV, VH, angle)
+    sentinel2: [0, 1, 2, 3, 4, 5, 6]  # Select first 7 bands instead of all 13
+    fapar: [0, 1]  # FAPAR and LAI
+    # Static modalities typically use all bands
+    soil: null  # null means use all bands
+    elevation: null
+    worldcereal_cropmask: null
+    worldcereal_cropcalender: null
+  batch_size: 32
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  seed: 42
+  pin_memory: True
+
 
