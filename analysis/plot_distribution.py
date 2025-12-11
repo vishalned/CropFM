@@ -226,10 +226,10 @@ def plot_temporal_modality_distributions(root, output_dir):
 
 def main():
     # Path to zarr dataset
-    zarr_path = '/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200_merged.zarr'
+    zarr_path = '/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200_merged_cleaned.zarr'
     
     # Create output directory
-    output_dir = Path('plots')
+    output_dir = Path('plots_cleaned')
     output_dir.mkdir(exist_ok=True)
     
     print(f"Loading zarr dataset from: {zarr_path}")

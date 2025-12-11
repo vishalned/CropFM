@@ -196,14 +196,6 @@ def interpolate_no_data_values(data, no_data_value, interpolation_method='linear
     
     return interpolated_data
 
-def parse_timestamp(ts_str):
-    """Parse timestamp string to datetime"""
-    if ts_str == 'NA' or ts_str == '' or pd.isna(ts_str):
-        return None
-    try:
-        return pd.to_datetime(ts_str)
-    except:
-        return None
 
 def get_week_key(dt):
     """Get year-week key for grouping"""
@@ -296,18 +288,26 @@ def aggregate_to_weekly(data, timestamps, aggregation_method='mean'):
     for var_idx in range(n_vars):
         var_data = weekly_data_full[:, var_idx]
         if np.any(np.isnan(var_data)):
-            # Use linear interpolation
             valid_indices = np.where(~np.isnan(var_data))[0]
             if len(valid_indices) > 1:
-                interp_func = interp1d(valid_indices, var_data[valid_indices], 
-                                     kind='cubic', fill_value='extrapolate', 
-                                     bounds_error=False)
-                all_indices = np.arange(52)
-                var_data_interp = interp_func(all_indices)
-                weekly_data_full[:, var_idx] = var_data_interp
+                if len(valid_indices) < 10:
+                    print('----------------------------------- less than 10 valid indices -----------------------------------')
+                # Use linear interpolation (works with 2+ points, more robust than cubic)
+                try:
+                    interp_func = interp1d(valid_indices, var_data[valid_indices], 
+                                         kind='linear', fill_value='extrapolate', 
+                                         bounds_error=False)
+                    all_indices = np.arange(52)
+                    var_data_interp = interp_func(all_indices)
+                    weekly_data_full[:, var_idx] = var_data_interp
+                except Exception as e:
+                    # If interpolation fails, leave as NaN
+                    print(f"Warning: Interpolation failed for variable {var_idx}: {e}")
             elif len(valid_indices) == 1:
-                # Only one data point. This should not happen.
-                raise ValueError("only one valid data point. check the data.")
+                # Only one data point - repeat for all 52 weeks
+                print('----------------------------------------------------- only one data point -----------------------------------------------------')
+                single_value = var_data[valid_indices[0]]
+                weekly_data_full[:, var_idx] = single_value
     
     weekly_timestamps = np.array(all_week_keys)
     
