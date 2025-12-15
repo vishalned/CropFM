@@ -6,6 +6,15 @@ from pytorch_lightning.loggers import WandbLogger
 
 
 class RealTimeMemoryCallback(Callback):
+    """
+    Callback to log real-time memory usage during training
+    Args:
+        trainer: Trainer object
+        pl_module: LightningModule object
+        outputs: Outputs from the model
+        batch: Batch of data
+        batch_idx: Batch index
+    """
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         if batch_idx % 5 == 0:
             if torch.cuda.is_available():
@@ -24,6 +33,15 @@ class RealTimeMemoryCallback(Callback):
 
 
 def configure_callbacks(cfg, model, pretraining=False):
+    """
+    Configure callbacks for training
+    Args:
+        cfg: Configuration object
+        model: Model object
+        pretraining: Whether the model is being trained for pretraining
+    Returns:
+        Dictionary with loggers and callbacks
+    """
     callbacks_list = cfg.callbacks.callbacks_list
     configs = cfg.callbacks
 

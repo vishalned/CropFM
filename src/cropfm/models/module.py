@@ -10,7 +10,30 @@ from cropfm.models.arch.mae import CropMAE
 
 
 class CropMAEModule(LightningModule):
-    """PyTorch Lightning module for training CropMAE"""
+    """
+    PyTorch Lightning module for training CropMAE
+
+    Args:
+        model: CropMAE model
+        learning_rate: Learning rate
+        weight_decay: Weight decay
+        warmup_epochs: Warmup epochs
+        max_epochs: Maximum epochs
+
+    Example:
+        >>> model = CropMAE(
+        ...     modalities=cfg.data.modalities,
+        ...     **cfg.model
+        ... )
+        >>> module = CropMAEModule(model=model, **cfg.model)
+        >>> trainer = Trainer(
+        ...     **cfg.trainer,
+        ...     callbacks=callbacks["callbacks"],
+        ...     logger=callbacks["loggers"],
+        ... )
+        >>> trainer.fit(module, datamodule=datamodule)
+        >>> trainer.test(module, datamodule=datamodule)
+    """
 
     def __init__(
         self,
@@ -33,9 +56,24 @@ class CropMAEModule(LightningModule):
         self.criterion = nn.MSELoss()
 
     def forward(self, x: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """
+        Forward pass for CropMAE
+        Args:
+            x: Input data
+        Returns:
+            Reconstructions
+        """
         return self.model(x)
 
     def training_step(self, batch: dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
+        """
+        Training step for CropMAE
+        Args:
+            batch: Batch of data
+            batch_idx: Batch index
+        Returns:
+            Loss
+        """
         reconstructions = self.model(batch)
         total_loss = 0.0
         num_modalities = 0
@@ -59,6 +97,11 @@ class CropMAEModule(LightningModule):
         return avg_loss
 
     def configure_optimizers(self):
+        """
+        Configure optimizers for CropMAE
+        Returns:
+            Optimizer and scheduler
+        """
         optimizer = AdamW(
             self.parameters(),
             lr=self.learning_rate,

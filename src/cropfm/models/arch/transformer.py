@@ -7,7 +7,16 @@ from torch.jit import Final
 
 
 class Attention(nn.Module):
-    """Multi-head self-attention module"""
+    """Multi-head self-attention module
+    Args:
+        dim: Dimension of the input
+        num_heads: Number of heads
+        qkv_bias: Whether to use bias in the linear projections
+        attn_drop: Dropout rate for the attention
+        proj_drop: Dropout rate for the projection
+    Returns:
+        Output tensor
+    """
 
     fast_attn: Final[bool]
 
@@ -32,6 +41,13 @@ class Attention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for Attention
+        Args:
+            x: Input tensor
+        Returns:
+            Output tensor
+        """
         B, N, C = x.shape
         qkv = self.qkv(x) # [B, N, 3*dim]
         qkv = qkv.reshape(B, N, 3, self.num_heads, self.head_dim) # [B, N, 3, num_heads, head_dim]
@@ -59,7 +75,17 @@ class Attention(nn.Module):
 
 
 class Mlp(nn.Module):
-    """MLP as used in Vision Transformer and related networks"""
+    """MLP as used in Vision Transformer and related networks
+    Args:
+        in_features: Number of input features
+        hidden_features: Number of hidden features
+        out_features: Number of output features
+        act_layer: Activation layer
+        bias: Whether to use bias in the linear projections
+        drop: Dropout rate
+    Returns:
+        Output tensor
+    """
 
     def __init__(
         self,
@@ -81,6 +107,13 @@ class Mlp(nn.Module):
         self.drop2 = nn.Dropout(drop)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for Mlp
+        Args:
+            x: Input tensor
+        Returns:
+            Output tensor
+        """
         x = self.fc1(x)
         x = self.act(x)
         x = self.drop1(x)
@@ -90,7 +123,19 @@ class Mlp(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    """Standard transformer block with self-attention and MLP"""
+    """Standard transformer block with self-attention and MLP
+    Args:
+        dim: Dimension of the input
+        num_heads: Number of heads
+        mlp_ratio: Ratio of hidden features to input features
+        qkv_bias: Whether to use bias in the linear projections
+        drop: Dropout rate
+        attn_drop: Dropout rate for the attention
+        act_layer: Activation layer
+        norm_layer: Normalization layer
+    Returns:
+        Output tensor
+    """
 
     def __init__(
         self,
@@ -122,6 +167,13 @@ class TransformerBlock(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for TransformerBlock
+        Args:
+            x: Input tensor
+        Returns:
+            Output tensor
+        """
         x = x + self.attn(self.norm1(x))
         x = x + self.mlp(self.norm2(x))
         return x

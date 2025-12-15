@@ -8,7 +8,14 @@ from cropfm.models.arch.transformer import TransformerBlock
 
 
 def get_sinusoid_encoding_table(positions: int | list[int], d_hid: int, T: int = 10000) -> torch.Tensor:
-    """Sinusoid position encoding table"""
+    """Sinusoid position encoding table
+    Args:
+        positions: Number of positions
+        d_hid: Dimension of the hidden features
+        T: Maximum sequence length
+    Returns:
+        Sinusoid encoding table
+    """
     if isinstance(positions, int):
         positions = list(range(positions))
 
@@ -26,7 +33,13 @@ def get_sinusoid_encoding_table(positions: int | list[int], d_hid: int, T: int =
 
 
 class ModalityTokenizer(nn.Module):
-    """Tokenization module that creates tokens for each modality and timestep"""
+    """Tokenization module that creates tokens for each modality and timestep
+    Args:
+        modality_dims: Dictionary of modality dimensions
+        embedding_dim: Dimension of the embedding
+    Returns:
+        Tokenized input
+    """
 
     def __init__(self, modality_dims: dict[str, int], embedding_dim: int):
         super().__init__()
@@ -44,8 +57,9 @@ class ModalityTokenizer(nn.Module):
         for modality_name, modality_data in x.items():
             if modality_name not in self.tokenizers:
                 raise ValueError(f"Modality {modality_name} not found in tokenizers")
+            print(f"Modality {modality_name} shape: {modality_data.shape}")
             B, T, D = modality_data.shape
-            modality_flat = modality_data.reshape(B * T, D)
+            modality_flat = modality_data.reshape(B * T, D) 
             modality_tokens = self.tokenizers[modality_name](modality_flat)
             modality_tokens = modality_tokens.reshape(B, T, self.embedding_dim)
             tokens.append(modality_tokens)
@@ -53,7 +67,12 @@ class ModalityTokenizer(nn.Module):
 
 
 class RandomMasking(nn.Module):
-    """Random masking module for MAE"""
+    """Random masking module for MAE
+    Args:
+        mask_ratio: Ratio of tokens to mask
+    Returns:
+        Masked input
+    """
 
     def __init__(self, mask_ratio: float = 0.75):
         super().__init__()
@@ -62,6 +81,17 @@ class RandomMasking(nn.Module):
     def forward(
         self, x: torch.Tensor, mask_ratio: float = 0.75
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Forward pass for RandomMasking
+        Args:
+            x: Input tensor
+            mask_ratio: Ratio of tokens to mask
+        Returns:
+            Masked input
+            Masked input
+            Kept indices
+            Removed indices
+        """
         B, N, C = x.shape
         device = x.device
 
@@ -88,7 +118,20 @@ class RandomMasking(nn.Module):
 
 
 class Encoder(nn.Module):
-    """Encoder module for MAE"""
+    """Encoder module for MAE
+    Args:
+        embedding_dim: Dimension of the embedding
+        depth: Number of transformer blocks
+        num_heads: Number of heads
+        mlp_ratio: Ratio of hidden features to input features
+        qkv_bias: Whether to use bias in the linear projections
+        drop: Dropout rate
+        attn_drop: Dropout rate for the attention
+        max_sequence_length: Maximum sequence length
+        use_pos_embedding: Whether to use positional encoding
+    Returns:
+        Encoded input
+    """
 
     def __init__(
         self,
@@ -131,6 +174,13 @@ class Encoder(nn.Module):
             self.pos_embed.data.copy_(pos_embed)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for Encoder
+        Args:
+            x: Input tensor
+        Returns:
+            Encoded input
+        """
         if self.use_pos_embedding:
             seq_len = x.shape[1]
             if seq_len <= self.pos_embed.shape[1]:
@@ -141,7 +191,21 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    """Decoder module for MAE"""
+    """Decoder module for MAE
+    Args:
+        encoder_embed_dim: Dimension of the encoder embedding
+        decoder_embed_dim: Dimension of the decoder embedding
+        decoder_depth: Number of transformer blocks
+        decoder_num_heads: Number of heads
+        mlp_ratio: Ratio of hidden features to input features
+        qkv_bias: Whether to use bias in the linear projections
+        drop: Dropout rate
+        attn_drop: Dropout rate for the attention
+        max_sequence_length: Maximum sequence length
+        use_pos_embedding: Whether to use positional encoding
+    Returns:
+        Decoded input
+    """
 
     def __init__(
         self,
@@ -190,6 +254,15 @@ class Decoder(nn.Module):
     def add_masked_tokens(
         self, x: torch.Tensor, kept_indices: torch.Tensor, removed_indices: torch.Tensor
     ) -> torch.Tensor:
+        """
+        Forward pass for Decoder
+        Args:
+            x: Input tensor
+            kept_indices: Kept indices
+            removed_indices: Removed indices
+        Returns:
+            Decoded input
+        """
         B = x.shape[0]
         device = x.device
         num_masked = removed_indices.shape[1]
@@ -211,6 +284,15 @@ class Decoder(nn.Module):
     def forward(
         self, x: torch.Tensor, kept_indices: torch.Tensor, removed_indices: torch.Tensor
     ) -> torch.Tensor:
+        """
+        Forward pass for Decoder
+        Args:
+            x: Input tensor
+            kept_indices: Kept indices
+            removed_indices: Removed indices
+        Returns:
+            Decoded input
+        """
         x = self.decoder_embed(x)
         x = self.add_masked_tokens(x, kept_indices, removed_indices)
 
@@ -226,8 +308,23 @@ class Decoder(nn.Module):
 
 
 class CropMAE(nn.Module):
-    """Masked Autoencoder (MAE) for crop foundational models"""
-
+    """Masked Autoencoder (MAE) for crop foundational models
+    Args:
+        modalities: Dictionary of modalities
+        embedding_dim: Dimension of the embedding
+        encoder_depth: Number of encoder transformer blocks
+        encoder_num_heads: Number of encoder heads
+        decoder_embed_dim: Dimension of the decoder embedding
+        decoder_depth: Number of decoder transformer blocks
+        decoder_num_heads: Number of decoder heads
+        mlp_ratio: Ratio of hidden features to input features
+        mask_ratio: Ratio of tokens to mask
+        max_sequence_length: Maximum sequence length
+        use_pos_embedding: Whether to use positional encoding
+        weight_decay: Weight decay
+    Returns:
+        Reconstructions
+    """
     def __init__(
         self,
         modalities: dict,
@@ -245,6 +342,22 @@ class CropMAE(nn.Module):
         **kwargs
     ):
         super().__init__()
+        """
+        Initialize CropMAE
+        Args:
+            modalities: Dictionary of modalities
+            embedding_dim: Dimension of the embedding
+            encoder_depth: Number of encoder transformer blocks
+            encoder_num_heads: Number of encoder heads
+            decoder_embed_dim: Dimension of the decoder embedding
+            decoder_depth: Number of decoder transformer blocks
+            decoder_num_heads: Number of decoder heads
+            mlp_ratio: Ratio of hidden features to input features
+            mask_ratio: Ratio of tokens to mask
+            max_sequence_length: Maximum sequence length
+            use_pos_embedding: Whether to use positional encoding
+            weight_decay: Weight decay
+        """
         modality_dims = {modality: len(modalities['modality_list'][modality]['variables']) for modality in modalities['modality_list']}
 
         self.tokenizer = ModalityTokenizer(
@@ -279,9 +392,17 @@ class CropMAE(nn.Module):
         self._initialize_weights()
 
     def _initialize_weights(self):
+        """
+        Initialize weights
+        """
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
+        """
+        Initialize weights
+        Args:
+            m: Module
+        """
         if isinstance(m, nn.Linear):
             torch.nn.init.xavier_uniform_(m.weight)
             if m.bias is not None:
@@ -293,6 +414,14 @@ class CropMAE(nn.Module):
     def forward(
         self, x: dict[str, torch.Tensor], mask: torch.Tensor | None = None
     ) -> dict[str, torch.Tensor]:
+        """
+        Forward pass for CropMAE
+        Args:
+            x: Input tensor
+            mask: Mask tensor
+        Returns:
+            Reconstructions
+        """
         tokens = self.tokenizer(x)
         masked_tokens, mask, kept_indices, removed_indices = self.masking(tokens, mask)
         encoded_tokens = self.encoder(masked_tokens)

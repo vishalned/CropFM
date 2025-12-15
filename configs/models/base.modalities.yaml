@@ -19,21 +19,39 @@ modality_list:
       - 'B9'
       - 'B11'
       - 'B12'
+  agera5:
+    variables:
+      - 'Precipitation_Flux'
+      - 'Vapour_Pressure_Mean_24h'
+      - 'Temperature_Air_2m_Max_24h'
+      - 'Temperature_Air_2m_Min_24h'
+      - 'Temperature_Air_2m_Mean_24h'
+      - 'Solar_Radiation_Flux'
+      - 'Wind_Speed_10m_Mean_24h'
+      - 'Derived_Relative_Humidity_2m_Max_24h'
   fapar:
     variables:
       - 'FAPAR'
       - 'LAI'
   soil:
     variables:
-      - 'clay'
-      - 'nitrogen'
-      - 'phh2o'
-      - 'soc'
+      - 'clay_0-5cm'
+      - 'clay_5-15cm'
+      - 'clay_15-30cm'
+      - 'nitrogen_0-5cm'
+      - 'nitrogen_5-15cm'
+      - 'nitrogen_15-30cm'
+      - 'phh2o_0-5cm'
+      - 'phh2o_5-15cm'
+      - 'phh2o_15-30cm'
+      - 'soc_0-5cm'
+      - 'soc_5-15cm'
+      - 'soc_15-30cm'
   elevation:
     variables:
       - 'elevation'
       - 'slope'
-  coordinates:
+  encoded_coordinates:
     variables:
       - 'sin_longitude'
       - 'cos_longitude'
@@ -52,4 +70,3 @@ modality_list:
   #     - 'aez_id'
   #     - 'crop_calendar'
   #     - 'variable_names'
-

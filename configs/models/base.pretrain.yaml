@@ -2,7 +2,14 @@
 defaults: 
   - base.modalities@data.modalities
   - _self_
-seed_everything: 42
+
+hydra:
+  job:
+    chdir: true
+  run:
+    dir: experiments/pretrain/test/
+
+seed_everything: &seed_everything 42
 
 # Callbacks configuration
 callbacks:
@@ -38,7 +45,7 @@ trainer:
   min_epochs: 1
   max_epochs: 200
   enable_progress_bar: True
-  fast_dev_run: False
+  fast_dev_run: True
 
 
 # Model configuration
@@ -62,13 +69,14 @@ model:
 
 # Data configuration
 data:
-
   # module parameters
   batch_size: 32
-  num_workers: 4
+  num_workers: 1
 
   # dataset parameters
+  zarr_path: "/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200_merged_cleaned.zarr"
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
-
+  seed: *seed_everything
+  pin_memory: False
