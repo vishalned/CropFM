@@ -5,9 +5,15 @@ build-backend = "hatchling.build"
 [project]
 name = "cropfm"
 version = "0.1.0"
-description = "A radio built on Crops :)"
+description = "A radio built on Crops :) i.e for the farmers and by the farmers"
 readme = "README.md"
 requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.9.0",
+    "torchvision>=0.24.0",
+    "torchaudio>=2.9.0",
+    "lightning>=2.6.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -32,3 +38,8 @@ target-version = ['py311']
 profile = "black"
 line_length = 100
 src_paths = ["src"]
+
+
+[tool.uv]
+index-url = "https://download.pytorch.org/whl/cu126"
+extra-index-url = ["https://pypi.org/simple"]

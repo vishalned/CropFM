@@ -1,0 +1,55 @@
+# modalities configuration
+
+modality_list:
+  sentinel1:
+    variables:
+      - 'VV'
+      - 'VH'
+  sentinel2:
+    variables:
+      - 'B1'
+      - 'B2'
+      - 'B3'
+      - 'B4'
+      - 'B5'
+      - 'B6'
+      - 'B7'
+      - 'B8'
+      - 'B8A'
+      - 'B9'
+      - 'B11'
+      - 'B12'
+  fapar:
+    variables:
+      - 'FAPAR'
+      - 'LAI'
+  soil:
+    variables:
+      - 'clay'
+      - 'nitrogen'
+      - 'phh2o'
+      - 'soc'
+  elevation:
+    variables:
+      - 'elevation'
+      - 'slope'
+  coordinates:
+    variables:
+      - 'sin_longitude'
+      - 'cos_longitude'
+      - 'sin_latitude'
+      - 'cos_latitude'
+  week_encoding:
+    variables:
+      - 'sin_week'
+      - 'cos_week'  
+  # worldcereal_cropmask:
+  #   variables:
+  #     - 'aez_id'
+  #     - 'crop_mask'
+  # worldcereal_cropcalender:
+  #   variables:
+  #     - 'aez_id'
+  #     - 'crop_calendar'
+  #     - 'variable_names'
+

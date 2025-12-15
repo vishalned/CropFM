@@ -9,3 +9,4 @@ slurm_logs/
 tmp_scripts/
 
 outputs/
+lightning_logs/

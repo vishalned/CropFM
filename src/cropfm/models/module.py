@@ -14,38 +14,17 @@ class CropMAEModule(LightningModule):
 
     def __init__(
         self,
-        modality_dims: dict[str, int],
-        embedding_dim: int = 128,
-        encoder_depth: int = 6,
-        encoder_num_heads: int = 8,
-        decoder_embed_dim: int = 128,
-        decoder_depth: int = 2,
-        decoder_num_heads: int = 8,
-        mlp_ratio: float = 4.0,
-        mask_ratio: float = 0.75,
-        max_sequence_length: int = 1000,
-        use_pos_embedding: bool = True,
+        model: CropMAE,
         learning_rate: float = 1e-4,
         weight_decay: float = 0.05,
         warmup_epochs: int = 10,
         max_epochs: int = 100,
+        **kwargs
     ):
         super().__init__()
         self.save_hyperparameters()
 
-        self.model = CropMAE(
-            modality_dims=modality_dims,
-            embedding_dim=embedding_dim,
-            encoder_depth=encoder_depth,
-            encoder_num_heads=encoder_num_heads,
-            decoder_embed_dim=decoder_embed_dim,
-            decoder_depth=decoder_depth,
-            decoder_num_heads=decoder_num_heads,
-            mlp_ratio=mlp_ratio,
-            mask_ratio=mask_ratio,
-            max_sequence_length=max_sequence_length,
-            use_pos_embedding=use_pos_embedding,
-        )
+        self.model = model
 
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay

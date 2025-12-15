@@ -1,0 +1,74 @@
+# Hydra configuration for CropMAE training
+defaults: 
+  - base.modalities@data.modalities
+  - _self_
+seed_everything: 42
+
+# Callbacks configuration
+callbacks:
+  callbacks_list:
+    - checkpoint
+    - real_time_memory
+    - model_summary
+    # - wandb
+
+  checkpoint:
+    mode: "max"
+    save_top_k: 3
+    save_last: True
+    dirpath: "model_checkpoints"
+    filename: "checkpoint-{epoch:02d}"
+  
+  wandb:
+    project: "cropfm-pretrain"
+    name: "cropfm-pretrain"
+
+  model_summary:
+    max_depth: 3
+
+# Trainer configuration
+trainer:
+  default_root_dir: "."
+  precision: 32
+  devices: 1
+  num_nodes: 1
+  accelerator: cpu
+  strategy: auto
+  accumulate_grad_batches: 1
+  min_epochs: 1
+  max_epochs: 200
+  enable_progress_bar: True
+  fast_dev_run: False
+
+
+# Model configuration
+model:
+  weight_decay: 0.05
+  learning_rate: 1e-4
+  warmup_epochs: 10
+
+  # Architecture hyperparameters
+  embedding_dim: 128
+  encoder_depth: 2
+  encoder_num_heads: 8
+  decoder_embed_dim: 128
+  decoder_depth: 2
+  decoder_num_heads: 8
+  mlp_ratio: 4.0
+  mask_ratio: 0.75
+  max_sequence_length: 1000
+  use_pos_embedding: true
+
+
+# Data configuration
+data:
+
+  # module parameters
+  batch_size: 32
+  num_workers: 4
+
+  # dataset parameters
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+

@@ -19,8 +19,8 @@ def get_sinusoid_encoding_table(positions: int | list[int], d_hid: int, T: int =
         return [cal_angle(position, hid_j) for hid_j in range(d_hid)]
 
     sinusoid_table = np.array([get_posi_angle_vec(pos_i) for pos_i in positions])
-    sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2])
-    sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2])
+    sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2]) # dim 2i
+    sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2]) # dim 2i+1
 
     return torch.FloatTensor(sinusoid_table)
 
@@ -230,7 +230,7 @@ class CropMAE(nn.Module):
 
     def __init__(
         self,
-        modality_dims: dict[str, int],
+        modalities: dict,
         embedding_dim: int = 128,
         encoder_depth: int = 6,
         encoder_num_heads: int = 8,
@@ -241,8 +241,11 @@ class CropMAE(nn.Module):
         mask_ratio: float = 0.75,
         max_sequence_length: int = 1000,
         use_pos_embedding: bool = True,
+        weight_decay: float = 0.05,
+        **kwargs
     ):
         super().__init__()
+        modality_dims = {modality: len(modalities['modality_list'][modality]['variables']) for modality in modalities['modality_list']}
 
         self.tokenizer = ModalityTokenizer(
             modality_dims=modality_dims,

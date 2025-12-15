@@ -16,6 +16,7 @@ class CropFMDataModule(LightningDataModule):
         train_split: float = 0.8,
         val_split: float = 0.1,
         test_split: float = 0.1,
+        **kwargs
     ):
         """
         Args:
