@@ -439,4 +439,3 @@ class CropMAE(nn.Module):
             start_idx += T
 
         return reconstructions
-
