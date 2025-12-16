@@ -10,3 +10,4 @@ tmp_scripts/
 
 experiments/
 .cursor/
+.DS_Store
