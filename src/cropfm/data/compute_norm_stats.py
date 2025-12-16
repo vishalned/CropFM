@@ -50,38 +50,41 @@ def compute_metadata_stats(root):
     return stats
 
 def compute_static_stats(root):
-    """Compute statistics for static modalities"""
+    """Compute statistics for static modalities, with soil per-depth stats."""
     stats = {}
-    
+
     print("\nComputing statistics for static modalities...")
-    
-    # Soil data
+
+    # Soil data: per variable × depth
     if 'soil' in root['static_modalities']:
         soil_group = root['static_modalities/soil']
         stats['soil'] = {}
-        
-        for var in ['clay', 'nitrogen', 'phh2o', 'soc']:
+
+        soil_vars = ['clay', 'nitrogen', 'phh2o', 'soc']
+        depth_labels = ['0-5cm', '5-15cm', '15-30cm']  # aligns with dataset.py
+
+        for var in soil_vars:
             if var not in soil_group:
                 continue
-            
-            data = soil_group[var][:]  # (n_samples, 3)
-            # Flatten across samples and depth layers
-            stats['soil'][var] = compute_stats_for_array(data)
-            print(f"  ✓ soil/{var}: mean={stats['soil'][var]['mean']:.4f}, std={stats['soil'][var]['std']:.4f}")
-    
+            # var_data shape: (n_samples, 3)
+            var_data = soil_group[var][:]
+            for depth_idx, depth_label in enumerate(depth_labels):
+                depth_slice = var_data[:, depth_idx]  # (n_samples,)
+                key = f"{var}_{depth_label}"
+                stats['soil'][key] = compute_stats_for_array(depth_slice)
+                print(f"  ✓ soil/{key}: mean={stats['soil'][key]['mean']:.4f}, std={stats['soil'][key]['std']:.4f}")
+
     # Elevation data
     if 'elevation' in root['static_modalities']:
         elev_group = root['static_modalities/elevation']
         stats['elevation'] = {}
-        
         for var in ['elevation', 'slope']:
             if var not in elev_group:
                 continue
-            
             data = elev_group[var][:]  # (n_samples,)
             stats['elevation'][var] = compute_stats_for_array(data)
             print(f"  ✓ elevation/{var}: mean={stats['elevation'][var]['mean']:.4f}, std={stats['elevation'][var]['std']:.4f}")
-    
+
     return stats
 
 def compute_temporal_stats(root):

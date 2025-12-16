@@ -21,7 +21,6 @@ from scipy.interpolate import interp1d
 from datetime import datetime
 
 NO_DATA_VALUE = {
-    'fapar': 0,
     'sentinel2': 0,
 }
 MAX_TIMESTEPS = {
@@ -145,95 +144,56 @@ def get_week_key(dt):
 
 def aggregate_to_weekly(data, timestamps, modality_name, aggregation_method='mean'):
     """
-    Aggregate temporal data to weekly resolution using pandas resample (much faster).
-    Always returns exactly 52 weeks, interpolating missing weeks.
-    
-    Args:
-        data: (max_time, n_vars) array
-        timestamps: (max_time,) array of timestamp strings
-        aggregation_method: 'mean', 'median', or 'max'
-    
-    Returns:
-        weekly_data: (52, n_vars) array - always 52 weeks
-        weekly_timestamps: (52,) array of week keys - always 52 weeks
-        weekly_valid_mask: (52,) boolean array - True for weeks with original data, False for interpolated
+    Aggregate to weekly, handle year boundaries/ISO week 53, then clip to 52 weeks.
+    Returns (52, n_vars) data, 52 week keys, 52-length valid mask.
     """
     if len(data) == 0:
-        try:
-            n_vars = data.shape[1] if len(data.shape) > 1 else 0
-        except (IndexError, AttributeError):
-            n_vars = 0
-        return (np.full((52, n_vars), np.nan, dtype=np.float32), 
-                np.array(['NA'] * 52, dtype='U20'), 
-                np.zeros(52, dtype=bool))
-    
-    # Convert timestamps to pandas DatetimeIndex
-    timestamps_series = pd.to_datetime(timestamps, errors='coerce')
-    valid_mask = ~timestamps_series.isna()
-    
-    if not np.any(valid_mask):
         n_vars = data.shape[1] if len(data.shape) > 1 else 0
-        return (np.full((52, n_vars), np.nan, dtype=np.float32), 
-                np.array(['NA'] * 52, dtype='U20'), 
+        return (np.full((52, n_vars), np.nan, dtype=np.float32),
+                np.array(['NA'] * 52, dtype='U20'),
                 np.zeros(52, dtype=bool))
-    
-    # Filter to valid timestamps and data
-    valid_timestamps = timestamps_series[valid_mask]
-    valid_data = data[valid_mask]
 
-    # Treat modality-specific no_data values as NaN before aggregation
-    if modality_name == 'fapar':
-        valid_data = np.where(valid_data == NO_DATA_VALUE.get('fapar', 0), np.nan, valid_data)
-    elif modality_name == 'sentinel2':
-        valid_data = np.where(valid_data == NO_DATA_VALUE.get('sentinel2', 0), np.nan, valid_data)
-    
-    # Determine the year from the first timestamp
-    year = valid_timestamps[0].year
-    
-    # Create DataFrame with DatetimeIndex
-    df = pd.DataFrame(valid_data, index=valid_timestamps)
-    
-    # Resample to weekly and aggregate
-    if aggregation_method == 'mean':
-        weekly_df = df.resample('W').mean()
-    elif aggregation_method == 'median':
-        weekly_df = df.resample('W').median()
-    elif aggregation_method == 'max':
-        weekly_df = df.resample('W').max()
-    else:
-        weekly_df = df.resample('W').mean()
-    
-    if len(weekly_df) == 0:
+    ts = pd.to_datetime(timestamps, errors='coerce')
+    valid_ts = ~ts.isna()
+    if not np.any(valid_ts):
         n_vars = data.shape[1] if len(data.shape) > 1 else 0
-        return (np.full((52, n_vars), np.nan, dtype=np.float32), 
-                np.array(['NA'] * 52, dtype='U20'), 
+        return (np.full((52, n_vars), np.nan, dtype=np.float32),
+                np.array(['NA'] * 52, dtype='U20'),
                 np.zeros(52, dtype=bool))
-    
-    # Create week keys for all 52 weeks: ["2021-W01", "2021-W02", ..., "2021-W52"]
-    all_week_keys = [f"{year}-W{i:02d}" for i in range(1, 53)]
-    
-    # Get week keys from aggregated data
-    aggregated_week_keys = []
-    for dt in weekly_df.index:
-        week_key = get_week_key(dt)
-        aggregated_week_keys.append(week_key)
-    
-    # Create full 52-week arrays
-    n_vars = weekly_df.shape[1]
-    weekly_data_full = np.full((52, n_vars), np.nan, dtype=np.float32)
-    weekly_valid_mask = np.zeros(52, dtype=bool)
-    
-    # Map aggregated data to correct week positions
-    for week_key, row_data in zip(aggregated_week_keys, weekly_df.values):
-        if week_key in all_week_keys:
-            week_idx = all_week_keys.index(week_key)
-            weekly_data_full[week_idx] = row_data
-            # mark valid if any non-NaN value exists in this week
-            weekly_valid_mask[week_idx] = ~np.isnan(row_data).all()
-    
-    weekly_timestamps = np.array(all_week_keys)
-    
-    return weekly_data_full, weekly_timestamps, weekly_valid_mask
+
+    d = data[valid_ts]
+    if modality_name == 'sentinel2':
+        d = np.where(d == NO_DATA_VALUE.get('sentinel2', 0), np.nan, d)
+
+    df = pd.DataFrame(d, index=ts[valid_ts])
+
+    if aggregation_method == 'median':
+        weekly = df.resample('W').median()
+    elif aggregation_method == 'max':
+        weekly = df.resample('W').max()
+    else:
+        weekly = df.resample('W').mean()
+
+    # Reindex across full week span
+    full_idx = pd.date_range(weekly.index.min(), weekly.index.max(), freq='W')
+    weekly = weekly.reindex(full_idx)
+
+    # Build keys and valid mask
+    week_keys_full = np.array([f"{dt.year}-W{dt.isocalendar()[1]:02d}" for dt in weekly.index])
+    weekly_valid_full = ~weekly.isna().all(axis=1)
+
+    # Clip/pad to exactly 52 weeks: keep earliest 52
+    n_vars = weekly.shape[1]
+    out_data = np.full((52, n_vars), np.nan, dtype=np.float32)
+    out_keys = np.array(['NA'] * 52, dtype='U20')
+    out_valid = np.zeros(52, dtype=bool)
+
+    use_len = min(len(weekly), 52)
+    out_data[:use_len] = weekly.values[:use_len]
+    out_keys[:use_len] = week_keys_full[:use_len]
+    out_valid[:use_len] = weekly_valid_full[:use_len]
+
+    return out_data, out_keys, out_valid
 
 def aggregate_to_daily(data, timestamps, valid_mask, aggregation_method='mean'):
     raise NotImplementedError("Not implemented yet")

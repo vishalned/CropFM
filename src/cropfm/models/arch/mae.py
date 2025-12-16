@@ -422,6 +422,8 @@ class CropMAE(nn.Module):
         Returns:
             Reconstructions
         """
+        x, valid_mask = x['data'], x['valid_mask']
+        raise NotImplementedError("complete the valid mask handling")
         tokens = self.tokenizer(x)
         masked_tokens, mask, kept_indices, removed_indices = self.masking(tokens, mask)
         encoded_tokens = self.encoder(masked_tokens)

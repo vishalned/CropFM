@@ -53,14 +53,14 @@ modality_list:
       - 'slope'
   encoded_coordinates:
     variables:
-      - 'sin_longitude'
-      - 'cos_longitude'
-      - 'sin_latitude'
-      - 'cos_latitude'
+      - 'lon_sin'
+      - 'lon_cos'
+      - 'lat_sin'
+      - 'lat_cos'
   week_encoding:
     variables:
-      - 'sin_week'
-      - 'cos_week'  
+      - 'week_sin'
+      - 'week_cos'  
   # worldcereal_cropmask:
   #   variables:
   #     - 'aez_id'

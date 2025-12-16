@@ -4,6 +4,8 @@ import torch
 from torch.utils.data import Dataset
 import zarr
 import numpy as np
+import json
+from pathlib import Path
 from typing import Callable, List, Dict, Optional
 
 
@@ -127,6 +129,51 @@ class CropFMDataset(Dataset):
         
         return indices.tolist()
 
+    def _normalize_data(self, data: torch.Tensor, modality: str, variables: list[str]) -> torch.Tensor:
+        """
+        Normalize the data.
+        Args:
+            data: The data to normalize
+            modality: The modality of the data
+            variables: The variables of the data
+        Returns:
+            The normalized data
+        """
+        # get one folder up from the zarr_path
+        norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats.json'
+        with open(norm_stats_path, 'r') as f:
+            norm_stats = json.load(f)
+        
+        if modality in self.TEMPORAL_MODALITIES:
+            modality_stats = norm_stats['temporal_modalities'][modality]
+            
+            # get the stats for the variables in the same order as the variables list
+            mean = []
+            std = []
+            for var in variables:
+                mean.append(modality_stats[var]['mean'])
+                std.append(modality_stats[var]['std'])
+            
+            data = (data - torch.tensor(mean)) / torch.tensor(std)
+
+        elif modality in self.STATIC_MODALITIES:
+            modality_stats = norm_stats['static_modalities'][modality]
+
+            if modality == 'soil':
+                for var in variables:
+                    base_var = var.split('_')[0]
+                    depth = var.split('_')[1]
+                    mean.append(modality_stats[base_var][depth]['mean'])
+                    std.append(modality_stats[base_var][depth]['std'])
+            else:
+                for var in variables:
+                    mean.append(modality_stats[var]['mean'])
+                    std.append(modality_stats[var]['std'])
+
+            data = (data - torch.tensor(mean)) / torch.tensor(std)
+
+        return data
+            
     def __len__(self) -> int:
         """Return dataset size - placeholder"""
         return len(self.indices)
@@ -134,12 +181,15 @@ class CropFMDataset(Dataset):
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         """
         Get a sample from the dataset.
+        For temporal modalities, the valid_mask is also returned.
+        We do this to allow the transformer to handle the nan data by replace them 
+        with learnable parameters or mask tokens or mask them out.
         
         Args:
             idx: Sample index
             
         Returns:
-            Dictionary mapping modality names to tensors of shape (T, D)
+            Dictionary mapping modality names to tensors of shape (T, D) and valid_mask (optional)
             where T is number of timesteps and D is feature dimension
         """
 
@@ -152,10 +202,30 @@ class CropFMDataset(Dataset):
         for modality in self.modalities:
             variables = self.modalities[modality]['variables']
             if modality in self.TEMPORAL_MODALITIES:
-                sample[modality] = self._load_temporal_modality(modality, variables, actual_idx)
+                sample_data, mask = self._load_temporal_modality(
+                    modality, 
+                    variables, 
+                    actual_idx
+                )
+                sample[modality]['data'] = self._normalize_data(sample_data, modality, variables)
+                sample[modality]['valid_mask'] = mask
+
+                if modality == 'sentinel2':
+                    # for all valid timesteps, we replace normalized nan data with 0
+                    tmp = sample[modality]['data']
+                    # only choose the valid timesteps
+                    tmp = tmp[mask]
+                    # replace nan with 0
+                    tmp = np.where(np.isnan(tmp), 0, tmp)
+                    # replace the data with the new data
+                    sample[modality]['data'] = tmp
+
             elif modality in self.STATIC_MODALITIES:
-                sample[modality] = self._load_static_modality(modality, variables, actual_idx)
-        
+                sample_data = self._load_static_modality(modality, variables, actual_idx)
+                sample[modality]['data'] = self._normalize_data(sample_data, modality, variables)
+                sample[modality]['valid_mask'] = None
+
+
         return sample
     
     def _load_temporal_modality(self, modality: str, variables: list[str], actual_idx: int) -> torch.Tensor:
@@ -180,12 +250,13 @@ class CropFMDataset(Dataset):
 
         data = data[:, [actual_variables.index(var) for var in variables]]
 
+        
+        valid_mask = self.zarr_root[f'temporal_modalities/{modality}/valid_mask'][actual_idx]
         # we not comment the below lines since we keep the nan data to allow the transformer to handle it
-        # valid_mask = self.zarr_root[f'temporal_modalities/{modality}/valid_mask'][actual_idx]
         # data = data[valid_mask]
         
         # Convert to PyTorch tensor
-        return torch.from_numpy(data).float()
+        return torch.from_numpy(data).float(), valid_mask
     
     def _load_static_modality(self, modality: str, variables: list[str], actual_idx: int) -> torch.Tensor:
         """
@@ -304,18 +375,18 @@ class CropFMDataset(Dataset):
         Load coordinates data.
         
         Returns:
-            Tensor of shape (4,) containing [sin_longitude, cos_longitude, sin_latitude, cos_latitude]
+            Tensor of shape (4,) containing [lon_sin, lon_cos, lat_sin, lat_cos]
         """
-        actual_variables = ['sin_longitude', 'cos_longitude', 'sin_latitude', 'cos_latitude']
+        actual_variables = ['lon_sin', 'lon_cos', 'lat_sin', 'lat_cos']
         encoded_coordinates = []
         for var in variables:
-            if var == 'sin_longitude':
+            if var == 'lon_sin':
                 encoded_coordinates.append(self.zarr_root['metadata/encoded_coordinates'][actual_idx][actual_variables.index(var)])
-            elif var == 'cos_longitude':
+            elif var == 'lon_cos':
                 encoded_coordinates.append(self.zarr_root['metadata/encoded_coordinates'][actual_idx][actual_variables.index(var)])
-            elif var == 'sin_latitude':
+            elif var == 'lat_sin':
                 encoded_coordinates.append(self.zarr_root['metadata/encoded_coordinates'][actual_idx][actual_variables.index(var)])
-            elif var == 'cos_latitude':
+            elif var == 'lat_cos':
                 encoded_coordinates.append(self.zarr_root['metadata/encoded_coordinates'][actual_idx][actual_variables.index(var)])
         
         return torch.tensor(encoded_coordinates).float().reshape(1, -1)
