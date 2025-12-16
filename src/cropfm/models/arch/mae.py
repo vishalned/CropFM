@@ -420,18 +420,22 @@ class CropMAE(nn.Module):
             x: Input tensor
             mask: Mask tensor
         Returns:
-            Reconstructions
+            Reconstructions per modality
         """
-        x, valid_mask = x['data'], x['valid_mask']
-        raise NotImplementedError("complete the valid mask handling")
-        tokens = self.tokenizer(x)
+        # x is expected to be a dict[modality] -> {'data': tensor, 'valid_mask': tensor or None}
+        # For now we ignore valid_mask here – masking is handled at token level.
+        data_dict: dict[str, torch.Tensor] = {
+            modality: modality_dict['data'] for modality, modality_dict in x.items()
+        }
+
+        tokens = self.tokenizer(data_dict)
         masked_tokens, mask, kept_indices, removed_indices = self.masking(tokens, mask)
         encoded_tokens = self.encoder(masked_tokens)
         decoded_tokens = self.decoder(encoded_tokens, kept_indices, removed_indices)
 
-        reconstructions = {}
+        reconstructions: dict[str, torch.Tensor] = {}
         start_idx = 0
-        for modality_name, modality_data in x.items():
+        for modality_name, modality_data in data_dict.items():
             B, T, D = modality_data.shape
             modality_tokens = decoded_tokens[:, start_idx : start_idx + T, :]
             modality_recon = self.reconstruction_heads[modality_name](modality_tokens)

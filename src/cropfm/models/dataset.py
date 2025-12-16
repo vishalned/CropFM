@@ -143,13 +143,15 @@ class CropFMDataset(Dataset):
         norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats.json'
         with open(norm_stats_path, 'r') as f:
             norm_stats = json.load(f)
-        
+
+        # containers for per-variable normalization statistics
+        mean: list[float] = []
+        std: list[float] = []
+
         if modality in self.TEMPORAL_MODALITIES:
             modality_stats = norm_stats['temporal_modalities'][modality]
             
             # get the stats for the variables in the same order as the variables list
-            mean = []
-            std = []
             for var in variables:
                 mean.append(modality_stats[var]['mean'])
                 std.append(modality_stats[var]['std'])
@@ -160,11 +162,10 @@ class CropFMDataset(Dataset):
             modality_stats = norm_stats['static_modalities'][modality]
 
             if modality == 'soil':
+                # soil stats are stored as flat keys like "clay_0-5cm"
                 for var in variables:
-                    base_var = var.split('_')[0]
-                    depth = var.split('_')[1]
-                    mean.append(modality_stats[base_var][depth]['mean'])
-                    std.append(modality_stats[base_var][depth]['std'])
+                    mean.append(modality_stats[var]['mean'])
+                    std.append(modality_stats[var]['std'])
             else:
                 for var in variables:
                     mean.append(modality_stats[var]['mean'])
@@ -201,6 +202,8 @@ class CropFMDataset(Dataset):
         # Load each requested modality
         for modality in self.modalities:
             variables = self.modalities[modality]['variables']
+            # initialize nested dict for this modality
+            sample[modality] = {}
             if modality in self.TEMPORAL_MODALITIES:
                 sample_data, mask = self._load_temporal_modality(
                     modality, 
@@ -213,11 +216,14 @@ class CropFMDataset(Dataset):
                 if modality == 'sentinel2':
                     # for all valid timesteps, we replace normalized nan data with 0
                     tmp = sample[modality]['data']
+                    # convert numpy mask to torch tensor on same device/dtype for safe indexing
+                    torch_mask = torch.from_numpy(mask).to(dtype=torch.bool, device=tmp.device)
                     # only choose the valid timesteps
-                    tmp = tmp[mask]
-                    # replace nan with 0
-                    tmp = np.where(np.isnan(tmp), 0, tmp)
-                    # replace the data with the new data
+                    tmp_valid = tmp[torch_mask]
+                    # replace nan with 0 (torch op)
+                    tmp_valid = torch.nan_to_num(tmp_valid, nan=0.0)
+                    # write back the updated valid timesteps
+                    tmp[torch_mask] = tmp_valid
                     sample[modality]['data'] = tmp
 
             elif modality in self.STATIC_MODALITIES:
@@ -362,7 +368,7 @@ class CropFMDataset(Dataset):
 
         # small bug when creating the week_encoding, we did it for every modality. but its all similar
         # so we just load the sentinel2 week_encoding
-        actual_variables = ['sin_week', 'cos_week']
+        actual_variables = ['week_sin', 'week_cos']
 
         week_encoding = []
         for var in variables:
