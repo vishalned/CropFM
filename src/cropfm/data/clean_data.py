@@ -344,6 +344,6 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_zarr_path', type=str, default='/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200_merged.zarr')
-    parser.add_argument('--output_zarr_path', type=str, default='/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200_merged_cleaned.zarr')
+    parser.add_argument('--output_zarr_path', type=str, default='/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200_merged_cleaned2.zarr')
     args = parser.parse_args()
     main(args)

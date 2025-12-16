@@ -140,7 +140,7 @@ class CropFMDataset(Dataset):
             The normalized data
         """
         # get one folder up from the zarr_path
-        norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats.json'
+        norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats2.json'
         with open(norm_stats_path, 'r') as f:
             norm_stats = json.load(f)
 
@@ -159,17 +159,17 @@ class CropFMDataset(Dataset):
             data = (data - torch.tensor(mean)) / torch.tensor(std)
 
         elif modality in self.STATIC_MODALITIES:
-            modality_stats = norm_stats['static_modalities'][modality]
-
-            if modality == 'soil':
-                # soil stats are stored as flat keys like "clay_0-5cm"
-                for var in variables:
-                    mean.append(modality_stats[var]['mean'])
-                    std.append(modality_stats[var]['std'])
+            if modality == 'encoded_coordinates':
+                modality_stats = norm_stats['metadata']['encoded_coordinates']
+            elif modality == 'week_encoding':
+                modality_stats = norm_stats['temporal_modalities']['agera5']['week_encoding']
             else:
-                for var in variables:
-                    mean.append(modality_stats[var]['mean'])
-                    std.append(modality_stats[var]['std'])
+                modality_stats = norm_stats['static_modalities'][modality]
+            
+
+            for var in variables:
+                mean.append(modality_stats[var]['mean'])
+                std.append(modality_stats[var]['std'])
 
             data = (data - torch.tensor(mean)) / torch.tensor(std)
 
@@ -229,8 +229,6 @@ class CropFMDataset(Dataset):
             elif modality in self.STATIC_MODALITIES:
                 sample_data = self._load_static_modality(modality, variables, actual_idx)
                 sample[modality]['data'] = self._normalize_data(sample_data, modality, variables)
-                sample[modality]['valid_mask'] = None
-
 
         return sample
     

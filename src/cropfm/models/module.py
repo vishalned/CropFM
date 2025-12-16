@@ -63,7 +63,8 @@ class CropMAEModule(LightningModule):
         Returns:
             Reconstructions
         """
-        return self.model(x)
+        reconstructions, _ = self.model(x)
+        return reconstructions
 
     def training_step(self, batch: dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """
@@ -74,13 +75,25 @@ class CropMAEModule(LightningModule):
         Returns:
             Loss
         """
-        reconstructions = self.model(batch)
+        reconstructions, modality_masks = self.model(batch)
         total_loss = 0.0
         num_modalities = 0
 
         for modality_name in batch.keys():
             if modality_name in reconstructions:
-                loss = self.criterion(reconstructions[modality_name], batch[modality_name])
+                pred = reconstructions[modality_name]  # (B, T, D)
+                target = batch[modality_name]['data']  # (B, T, D)
+                mask = modality_masks[modality_name]  # (B, T) - True for masked tokens
+                
+                # Compute MSE only on masked tokens
+                # Expand mask to match feature dimension: (B, T) -> (B, T, D)
+                mask_expanded = mask.unsqueeze(-1).expand_as(pred)  # (B, T, D)
+                
+                # Compute loss only where mask is True (masked tokens)
+                loss = (pred - target) ** 2
+                loss = loss * mask_expanded  # Zero out visible tokens
+                loss = loss.sum() / mask_expanded.sum()  # Average only over masked tokens
+                
                 total_loss += loss
                 num_modalities += 1
                 self.log(

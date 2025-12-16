@@ -52,16 +52,54 @@ class ModalityTokenizer(nn.Module):
             }
         )
 
-    def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
+        self.non_valid_mask_tokens = nn.ParameterDict(
+            {
+                modality_name: nn.Parameter(torch.randn(1, embedding_dim) * 0.02)
+                for modality_name in modality_dims.keys()
+            }
+        )
+
+    def forward(self, x: dict[str, torch.Tensor], valid_mask_dict: dict[str, torch.Tensor]) -> torch.Tensor:
         tokens = []
         for modality_name, modality_data in x.items():
             if modality_name not in self.tokenizers:
                 raise ValueError(f"Modality {modality_name} not found in tokenizers")
-            print(f"Modality {modality_name} shape: {modality_data.shape}")
             B, T, D = modality_data.shape
             modality_flat = modality_data.reshape(B * T, D) 
             modality_tokens = self.tokenizers[modality_name](modality_flat)
             modality_tokens = modality_tokens.reshape(B, T, self.embedding_dim)
+            
+            if valid_mask_dict[modality_name] is not None and modality_name in self.non_valid_mask_tokens:
+                valid_mask = valid_mask_dict[modality_name] # (B, T)
+
+                if isinstance(valid_mask, np.ndarray):
+                        valid_mask = torch.from_numpy(valid_mask).to(
+                            device=modality_tokens.device, 
+                            dtype=torch.bool
+                        )
+                # Handle different mask shapes: (T,) -> (B, T) or keep (B, T)
+                if valid_mask.dim() == 1:
+                    valid_mask = valid_mask.unsqueeze(0).expand(B, -1)
+                
+                # Get invalid mask (where valid_mask is False)
+                invalid_mask = ~valid_mask  # (B, T)
+                
+                # Expand invalid_mask to match token dimensions: (B, T) -> (B, T, 1)
+                invalid_mask_expanded = invalid_mask.unsqueeze(-1)  # (B, T, 1)
+                
+                # Get mask token for this modality: (1, embedding_dim)
+                mask_token = self.non_valid_mask_tokens[modality_name]  # (1, embedding_dim)
+                
+                # Expand mask_token to match modality_tokens: (1, embedding_dim) -> (B, T, embedding_dim)
+                mask_token_expanded = mask_token.view(1, 1, -1).expand(B, T, -1)  # (B, T, embedding_dim)
+                
+                # Replace invalid tokens with mask tokens using torch.where (differentiable)
+                modality_tokens = torch.where(
+                    invalid_mask_expanded,
+                    mask_token_expanded,
+                    modality_tokens
+                )
+
             tokens.append(modality_tokens)
         return torch.cat(tokens, dim=1)
 
@@ -413,33 +451,45 @@ class CropMAE(nn.Module):
 
     def forward(
         self, x: dict[str, torch.Tensor], mask: torch.Tensor | None = None
-    ) -> dict[str, torch.Tensor]:
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         """
         Forward pass for CropMAE
         Args:
             x: Input tensor
             mask: Mask tensor
         Returns:
-            Reconstructions per modality
+            Tuple of (reconstructions per modality, mask per modality)
         """
         # x is expected to be a dict[modality] -> {'data': tensor, 'valid_mask': tensor or None}
         # For now we ignore valid_mask here – masking is handled at token level.
-        data_dict: dict[str, torch.Tensor] = {
+        data_dict = {
             modality: modality_dict['data'] for modality, modality_dict in x.items()
         }
 
-        tokens = self.tokenizer(data_dict)
+        valid_mask_dict = {}
+        for modality, modality_dict in x.items():
+            if 'valid_mask' in modality_dict:
+                valid_mask_dict[modality] = modality_dict['valid_mask']
+            else:
+                valid_mask_dict[modality] = None
+
+        tokens = self.tokenizer(data_dict, valid_mask_dict)
         masked_tokens, mask, kept_indices, removed_indices = self.masking(tokens, mask)
         encoded_tokens = self.encoder(masked_tokens)
         decoded_tokens = self.decoder(encoded_tokens, kept_indices, removed_indices)
 
         reconstructions: dict[str, torch.Tensor] = {}
+        modality_masks: dict[str, torch.Tensor] = {}  # Track mask per modality
         start_idx = 0
         for modality_name, modality_data in data_dict.items():
             B, T, D = modality_data.shape
+            # Extract mask for this modality
+            modality_mask = mask[:, start_idx : start_idx + T]  # (B, T)
+            modality_masks[modality_name] = modality_mask
+            
             modality_tokens = decoded_tokens[:, start_idx : start_idx + T, :]
             modality_recon = self.reconstruction_heads[modality_name](modality_tokens)
             reconstructions[modality_name] = modality_recon
             start_idx += T
 
-        return reconstructions
+        return reconstructions, modality_masks

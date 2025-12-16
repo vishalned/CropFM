@@ -74,7 +74,7 @@ data:
   num_workers: 1
 
   # dataset parameters
-  zarr_path: "/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200_merged_cleaned.zarr"
+  zarr_path: "/lustre/scratch/WUR/AIN/nedun001/CropFM/data/zarr_files/europe_data_1200_merged_cleaned2.zarr"
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
