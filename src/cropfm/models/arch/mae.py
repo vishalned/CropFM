@@ -580,9 +580,13 @@ class CropMAE(nn.Module):
         """
         # x is expected to be a dict[modality] -> {'data': tensor, 'valid_mask': tensor or None}
         # For now we ignore valid_mask here – masking is handled at token level.
-        data_dict = {
-            modality: modality_dict['data'] for modality, modality_dict in x.items()
-        }
+        data_dict = {}
+        for modality, modality_dict in x.items():
+            modality_data = modality_dict['data']
+            # Replace NaN values with 0 to prevent NaN propagation through tokenizer
+            # This is safe because invalid timesteps will be masked out later
+            modality_data = torch.nan_to_num(modality_data, nan=0.0, posinf=0.0, neginf=0.0)
+            data_dict[modality] = modality_data
 
         valid_mask_dict = {}
         for modality, modality_dict in x.items():

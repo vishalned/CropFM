@@ -45,7 +45,7 @@ trainer:
   min_epochs: 1
   max_epochs: 200
   enable_progress_bar: True
-  fast_dev_run: True
+  fast_dev_run: False
 
 
 # Model configuration
@@ -55,7 +55,7 @@ model:
   warmup_epochs: 10 # still not implemented
 
   # Architecture hyperparameters
-  embedding_dim: 128
+  embedding_dim: 32
   encoder_depth: 2
   encoder_num_heads: 8
   decoder_embed_dim: 128
