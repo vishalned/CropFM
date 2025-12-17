@@ -131,6 +131,7 @@ class CropMAEModule(LightningModule):
             self.parameters(),
             lr=self.learning_rate,
             weight_decay=self.weight_decay,
+            betas=(0.9, 0.95),
         )
         scheduler = CosineAnnealingLR(
             optimizer,

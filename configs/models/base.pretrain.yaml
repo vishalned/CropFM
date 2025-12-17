@@ -51,8 +51,8 @@ trainer:
 # Model configuration
 model:
   weight_decay: 0.05
-  learning_rate: 1e-4
-  warmup_epochs: 10
+  learning_rate: 1.5e-4
+  warmup_epochs: 10 # still not implemented
 
   # Architecture hyperparameters
   embedding_dim: 128
@@ -70,7 +70,7 @@ model:
 # Data configuration
 data:
   # module parameters
-  batch_size: 32
+  batch_size: 128
   num_workers: 1
 
   # dataset parameters
