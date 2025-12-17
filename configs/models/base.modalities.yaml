@@ -57,10 +57,6 @@ modality_list:
       - 'lon_cos'
       - 'lat_sin'
       - 'lat_cos'
-  week_encoding:
-    variables:
-      - 'week_sin'
-      - 'week_cos'  
   # worldcereal_cropmask:
   #   variables:
   #     - 'aez_id'

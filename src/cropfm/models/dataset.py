@@ -40,7 +40,7 @@ class CropFMDataset(Dataset):
     # Class-level configuration: define modality categories
     TEMPORAL_MODALITIES = ['agera5', 'sentinel1', 'sentinel2', 'fapar']
     STATIC_MODALITIES = ['soil', 'elevation', 'worldcereal_cropmask', 
-                         'worldcereal_cropcalender', 'week_encoding', 'encoded_coordinates']
+                         'worldcereal_cropcalender', 'encoded_coordinates']
     
     # Configuration for soil variables
     SOIL_VARIABLES = ['clay', 'nitrogen', 'phh2o', 'soc']
@@ -217,6 +217,8 @@ class CropFMDataset(Dataset):
                 )
                 sample[modality]['data'] = self._normalize_data(sample_data, modality, variables)
                 sample[modality]['valid_mask'] = mask
+                # Load week indices for temporal positional encoding
+                sample[modality]['week_indices'] = self._load_week_indices(actual_idx) # always the same for all temporal modalities
 
                 if modality == 'sentinel2':
                     # for all valid timesteps, we replace normalized nan data with 0
@@ -360,6 +362,28 @@ class CropFMDataset(Dataset):
         
         # Concatenate aez_id with 6 calendar values
         return torch.from_numpy(np.concatenate([[aez_id], calendar])).long()
+    
+    def _load_week_indices(self, actual_idx: int) -> torch.Tensor:
+        """
+        Load week indices for temporal positional encoding.
+        Uses timestep indices directly as week indices (0-51), since all temporal modalities
+        share the same timesteps and week encoding.
+        
+        Args:
+            actual_idx: Absolute index in Zarr array
+            
+        Returns:
+            Tensor of shape (T,) containing week indices (0-51) for each timestep
+        """
+        # Load any temporal modality to get the number of timesteps
+        # All temporal modalities have the same number of timesteps
+        data = self.zarr_root['temporal_modalities/agera5/data'][actual_idx]
+        T = data.shape[0]
+        
+        # Use timestep indices directly as week indices (modulo 52)
+        week_indices = np.arange(T) % 52
+        
+        return torch.from_numpy(week_indices).long()
     
     def _load_week_encoding_data(self, variables: list[str], actual_idx: int) -> torch.Tensor:
         """
