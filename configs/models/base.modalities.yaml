@@ -5,20 +5,20 @@ modality_list:
     variables:
       - 'VV'
       - 'VH'
-  # sentinel2:
-  #   variables:
-  #     - 'B1'
-  #     - 'B2'
-  #     - 'B3'
-  #     - 'B4'
-  #     - 'B5'
-  #     - 'B6'
-  #     - 'B7'
-  #     - 'B8'
-  #     - 'B8A'
-  #     - 'B9'
-  #     - 'B11'
-  #     - 'B12'
+  sentinel2:
+    variables:
+      - 'B1'
+      - 'B2'
+      - 'B3'
+      - 'B4'
+      - 'B5'
+      - 'B6'
+      - 'B7'
+      - 'B8'
+      - 'B8A'
+      - 'B9'
+      - 'B11'
+      - 'B12'
   agera5:
     variables:
       - 'Precipitation_Flux'
@@ -29,10 +29,10 @@ modality_list:
       - 'Solar_Radiation_Flux'
       - 'Wind_Speed_10m_Mean_24h'
       - 'Derived_Relative_Humidity_2m_Max_24h'
-  # fapar:
-  #   variables:
-  #     - 'FAPAR'
-  #     - 'LAI'
+  fapar:
+    variables:
+      - 'FAPAR'
+      - 'LAI'
   soil:
     variables:
       - 'clay_0-5cm'
@@ -51,12 +51,12 @@ modality_list:
     variables:
       - 'elevation'
       - 'slope'
-  # encoded_coordinates:
-  #   variables:
-  #     - 'lon_sin'
-  #     - 'lon_cos'
-  #     - 'lat_sin'
-  #     - 'lat_cos'
+  encoded_coordinates:
+    variables:
+      - 'lon_sin'
+      - 'lon_cos'
+      - 'lat_sin'
+      - 'lat_cos'
   week_encoding:
     variables:
       - 'week_sin'

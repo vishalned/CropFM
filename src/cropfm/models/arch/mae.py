@@ -77,7 +77,6 @@ class ModalityTokenizer(nn.Module):
                             device=modality_tokens.device, 
                             dtype=torch.bool
                         )
-                # Handle different mask shapes: (T,) -> (B, T) or keep (B, T)
                 if valid_mask.dim() == 1:
                     valid_mask = valid_mask.unsqueeze(0).expand(B, -1)
                 

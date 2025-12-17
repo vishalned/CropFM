@@ -89,11 +89,23 @@ class CropMAEModule(LightningModule):
                 # Expand mask to match feature dimension: (B, T) -> (B, T, D)
                 mask_expanded = mask.unsqueeze(-1).expand_as(pred)  # (B, T, D)
                 
-                # Compute loss only where mask is True (masked tokens)
-                loss = (pred - target) ** 2
-                loss = loss * mask_expanded  # Zero out visible tokens
-                loss = loss.sum() / mask_expanded.sum()  # Average only over masked tokens
-                
+                # Compute loss only where:
+                #  - token is masked by MAE (mask_expanded == True)
+                #  - and target is not NaN (to avoid NaN losses from missing data)
+                # IMPORTANT: we must index with the mask instead of multiplying by it,
+                #            because 0 * NaN is still NaN in floating-point arithmetic.
+                diff = pred - target
+                valid_target_mask = ~torch.isnan(target)
+                combined_mask = mask_expanded & valid_target_mask  # (B, T, D)
+
+                denom = combined_mask.sum()
+                if denom == 0:
+                    continue
+
+                # Select only masked & valid positions, then compute MSE over them
+                selected_diff = diff[combined_mask]  # (denom,)
+                loss = (selected_diff ** 2).mean()
+
                 total_loss += loss
                 num_modalities += 1
                 self.log(

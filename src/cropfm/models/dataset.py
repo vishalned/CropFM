@@ -165,13 +165,18 @@ class CropFMDataset(Dataset):
                 modality_stats = norm_stats['temporal_modalities']['agera5']['week_encoding']
             else:
                 modality_stats = norm_stats['static_modalities'][modality]
-            
 
             for var in variables:
                 mean.append(modality_stats[var]['mean'])
                 std.append(modality_stats[var]['std'])
 
             data = (data - torch.tensor(mean)) / torch.tensor(std)
+
+            # For static modalities, ensure no NaNs remain after normalization (H5)
+            try:
+                data = torch.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
+            except Exception:
+                pass
 
         return data
             
@@ -371,8 +376,10 @@ class CropFMDataset(Dataset):
         week_encoding = []
         for var in variables:
             week_encoding.append(self.zarr_root['temporal_modalities/sentinel2/week_encoding'][actual_idx][:, actual_variables.index(var)])
-        
-        return torch.tensor(np.stack(week_encoding, axis=1)).float()
+
+        arr = np.stack(week_encoding, axis=1)
+
+        return torch.tensor(arr).float()
     
     def _load_encoded_coordinates_data(self, variables: list[str], actual_idx: int) -> torch.Tensor:
         """
