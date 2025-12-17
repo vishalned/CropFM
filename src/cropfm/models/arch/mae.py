@@ -211,6 +211,7 @@ class Encoder(nn.Module):
         attn_drop: float = 0.0,
         max_sequence_length: int = 1000,
         use_pos_embedding: bool = True,
+        num_modalities: int = 8,
     ):
         super().__init__()
         self.embedding_dim = embedding_dim
@@ -246,12 +247,16 @@ class Encoder(nn.Module):
         )
         week_embed = get_week_encoding_table(52, embedding_dim, num_weeks=52)
         self.week_embed.data.copy_(week_embed)
+        
+        # Modality-specific learnable embeddings
+        self.modality_embed = nn.Embedding(num_modalities, embedding_dim)
 
     def forward(
         self, 
         x: torch.Tensor, 
         week_indices: torch.Tensor | None = None,
-        is_temporal: torch.Tensor | None = None
+        is_temporal: torch.Tensor | None = None,
+        modality_indices: torch.Tensor | None = None
     ) -> torch.Tensor:
         """
         Forward pass for Encoder
@@ -259,6 +264,7 @@ class Encoder(nn.Module):
             x: Input tensor (B, N, D)
             week_indices: Week indices (0-51) for each token (B, N), None for static modalities
             is_temporal: Boolean mask (B, N) indicating temporal tokens (True) vs static (False)
+            modality_indices: Modality indices for each token (B, N)
         Returns:
             Encoded input
         """
@@ -278,6 +284,11 @@ class Encoder(nn.Module):
             if is_temporal is not None:
                 week_emb = week_emb * is_temporal.unsqueeze(-1).float()  # (B, N, D)
             x = x + week_emb
+        
+        if modality_indices is not None:
+            # Add modality-specific embedding: (B, N) -> (B, N, D)
+            modality_emb = self.modality_embed(modality_indices)  # (B, N, D)
+            x = x + modality_emb
         
         for block in self.blocks:
             x = block(x)
@@ -313,6 +324,7 @@ class Decoder(nn.Module):
         attn_drop: float = 0.0,
         max_sequence_length: int = 1000,
         use_pos_embedding: bool = True,
+        num_modalities: int = 8,
     ):
         super().__init__()
         self.decoder_embed_dim = decoder_embed_dim
@@ -351,6 +363,9 @@ class Decoder(nn.Module):
         )
         week_embed = get_week_encoding_table(52, decoder_embed_dim, num_weeks=52)
         self.week_embed.data.copy_(week_embed)
+        
+        # Modality-specific learnable embeddings
+        self.modality_embed = nn.Embedding(num_modalities, decoder_embed_dim)
 
     def add_masked_tokens(
         self, x: torch.Tensor, kept_indices: torch.Tensor, removed_indices: torch.Tensor
@@ -388,7 +403,8 @@ class Decoder(nn.Module):
         kept_indices: torch.Tensor, 
         removed_indices: torch.Tensor,
         week_indices: torch.Tensor | None = None,
-        is_temporal: torch.Tensor | None = None
+        is_temporal: torch.Tensor | None = None,
+        modality_indices: torch.Tensor | None = None
     ) -> torch.Tensor:
         """
         Forward pass for Decoder
@@ -398,6 +414,7 @@ class Decoder(nn.Module):
             removed_indices: Removed indices (B, num_masked)
             week_indices: Week indices (0-51) for full sequence (B, N_total), None for static
             is_temporal: Boolean mask (B, N_total) indicating temporal tokens (True) vs static (False)
+            modality_indices: Modality indices for full sequence (B, N_total)
         Returns:
             Decoded input
         """
@@ -420,6 +437,11 @@ class Decoder(nn.Module):
             if is_temporal is not None:
                 week_emb = week_emb * is_temporal.unsqueeze(-1).float()  # (B, N_total, D)
             x = x + week_emb
+        
+        if modality_indices is not None:
+            # Add modality-specific embedding: (B, N_total) -> (B, N_total, D)
+            modality_emb = self.modality_embed(modality_indices)  # (B, N_total, D)
+            x = x + modality_emb
 
         for block in self.decoder_blocks:
             x = block(x)
@@ -486,6 +508,11 @@ class CropMAE(nn.Module):
                              'worldcereal_cropcalender', 'encoded_coordinates']
         self.temporal_modalities = TEMPORAL_MODALITIES
         self.static_modalities = STATIC_MODALITIES
+        
+        # Create modality name to index mapping for learnable embeddings
+        all_modalities = list(modality_dims.keys())
+        self.modality_to_idx = {mod_name: idx for idx, mod_name in enumerate(all_modalities)}
+        num_modalities = len(all_modalities)
 
         self.tokenizer = ModalityTokenizer(
             modality_dims=modality_dims,
@@ -499,6 +526,7 @@ class CropMAE(nn.Module):
             mlp_ratio=mlp_ratio,
             max_sequence_length=max_sequence_length,
             use_pos_embedding=use_pos_embedding,
+            num_modalities=num_modalities,
         )
         self.decoder = Decoder(
             encoder_embed_dim=embedding_dim,
@@ -508,6 +536,7 @@ class CropMAE(nn.Module):
             mlp_ratio=mlp_ratio,
             max_sequence_length=max_sequence_length,
             use_pos_embedding=use_pos_embedding,
+            num_modalities=num_modalities,
         )
         self.reconstruction_heads = nn.ModuleDict(
             {
@@ -565,18 +594,24 @@ class CropMAE(nn.Module):
         tokens = self.tokenizer(data_dict, valid_mask_dict)
         masked_tokens, mask, kept_indices, removed_indices = self.masking(tokens, mask)
         
-        # Build week_indices and is_temporal tensors for positional encoding
+        # Build week_indices, is_temporal, and modality_indices tensors for positional encoding
         B = tokens.shape[0]
         N_total = tokens.shape[1]
         device = tokens.device
         
-        # Initialize week_indices (B, N_total) and is_temporal (B, N_total)
+        # Initialize week_indices (B, N_total), is_temporal (B, N_total), and modality_indices (B, N_total)
         week_indices = torch.zeros(B, N_total, dtype=torch.long, device=device)
         is_temporal = torch.zeros(B, N_total, dtype=torch.bool, device=device)
+        modality_indices = torch.zeros(B, N_total, dtype=torch.long, device=device)
         
         start_idx = 0
         for modality_name, modality_data in data_dict.items():
             B_mod, T, D = modality_data.shape
+            
+            # Set modality index for all tokens of this modality
+            if modality_name in self.modality_to_idx:
+                mod_idx = self.modality_to_idx[modality_name]
+                modality_indices[:, start_idx:start_idx + T] = mod_idx
             
             if modality_name in self.temporal_modalities:
                 # Temporal modalities: set is_temporal=True and load week_indices
@@ -599,24 +634,28 @@ class CropMAE(nn.Module):
             
             start_idx += T
         
-        # Extract week_indices and is_temporal for kept tokens only (for encoder)
+        # Extract week_indices, is_temporal, and modality_indices for kept tokens only (for encoder)
         kept_week_indices = None
         kept_is_temporal = None
+        kept_modality_indices = None
         if week_indices.numel() > 0:
             kept_week_indices = torch.gather(week_indices, 1, kept_indices)  # (B, num_kept)
             kept_is_temporal = torch.gather(is_temporal, 1, kept_indices)  # (B, num_kept)
+            kept_modality_indices = torch.gather(modality_indices, 1, kept_indices)  # (B, num_kept)
         
         encoded_tokens = self.encoder(
             masked_tokens, 
             week_indices=kept_week_indices,
-            is_temporal=kept_is_temporal
+            is_temporal=kept_is_temporal,
+            modality_indices=kept_modality_indices
         )
         decoded_tokens = self.decoder(
             encoded_tokens, 
             kept_indices, 
             removed_indices,
             week_indices=week_indices,  # Full sequence for decoder
-            is_temporal=is_temporal  # Full sequence for decoder
+            is_temporal=is_temporal,  # Full sequence for decoder
+            modality_indices=modality_indices  # Full sequence for decoder
         )
 
         reconstructions: dict[str, torch.Tensor] = {}
