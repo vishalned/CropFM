@@ -7,7 +7,7 @@ hydra:
   job:
     chdir: true
   run:
-    dir: experiments/pretrain/test/
+    dir: experiments/pretrain/test_run/
 
 seed_everything: &seed_everything 42
 
@@ -39,7 +39,7 @@ trainer:
   precision: 32
   devices: 1
   num_nodes: 1
-  accelerator: cpu
+  accelerator: gpu
   strategy: auto
   accumulate_grad_batches: 1
   min_epochs: 1
@@ -74,7 +74,7 @@ data:
   num_workers: 1
 
   # dataset parameters
-  zarr_path: "${hydra:runtime.cwd}/data/zarr_files/europe_data_1200_merged_cleaned2.zarr"
+  zarr_path: "${hydra:runtime.cwd}/data/zarr_files/europe_data_1200_merged_rechunked.zarr" # cleaned2 is the old version
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1

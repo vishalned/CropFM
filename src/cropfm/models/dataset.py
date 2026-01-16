@@ -79,6 +79,18 @@ class CropFMDataset(Dataset):
         # for testing, use all samples
         # self.indices = list(range(total_samples))
         
+        # Cache normalization stats to avoid repeated file reads
+        norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats2.json'
+        with open(norm_stats_path, 'r') as f:
+            self.norm_stats = json.load(f)
+        # Cache variable names for temporal modalities to avoid repeated zarr reads
+        self.temporal_variable_names = {}
+        for modality in self.TEMPORAL_MODALITIES:
+            if modality in self.modalities:
+                self.temporal_variable_names[modality] = self.zarr_root[f'temporal_modalities/{modality}/variable_names'][:]
+                if not isinstance(self.temporal_variable_names[modality], list):
+                    self.temporal_variable_names[modality] = self.temporal_variable_names[modality].tolist()
+        
 
     def _validate_modalities(self):
             """Validate that requested modalities are supported"""
@@ -139,10 +151,8 @@ class CropFMDataset(Dataset):
         Returns:
             The normalized data
         """
-        # get one folder up from the zarr_path
-        norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats2.json'
-        with open(norm_stats_path, 'r') as f:
-            norm_stats = json.load(f)
+        # Use cached normalization stats instead of reading from disk
+        norm_stats = self.norm_stats
 
         # containers for per-variable normalization statistics
         mean: list[float] = []
@@ -204,6 +214,9 @@ class CropFMDataset(Dataset):
         
         sample = {}
         
+        # Cache week indices shape from first temporal modality to avoid reloading
+        week_indices_shape = None
+        
         # Load each requested modality
         for modality in self.modalities:
             variables = self.modalities[modality]['variables']
@@ -215,10 +228,14 @@ class CropFMDataset(Dataset):
                     variables, 
                     actual_idx
                 )
+                
                 sample[modality]['data'] = self._normalize_data(sample_data, modality, variables)
                 sample[modality]['valid_mask'] = mask
                 # Load week indices for temporal positional encoding
-                sample[modality]['week_indices'] = self._load_week_indices(actual_idx) # always the same for all temporal modalities
+                # Use cached shape from first temporal modality to avoid reloading data
+                if week_indices_shape is None:
+                    week_indices_shape = sample_data.shape[0]
+                sample[modality]['week_indices'] = self._load_week_indices_from_shape(week_indices_shape)
 
                 if modality == 'sentinel2':
                     # for all valid timesteps, we replace normalized nan data with 0
@@ -254,10 +271,14 @@ class CropFMDataset(Dataset):
         # Load data and validity mask
         data = self.zarr_root[f'temporal_modalities/{modality}/data'][actual_idx]
 
-        actual_variables = self.zarr_root[f'temporal_modalities/{modality}/variable_names'][:]
-        # exactly get the same ordering as the variables list
-        if not isinstance(actual_variables, list):
-            actual_variables = actual_variables.tolist()
+        # Use cached variable names instead of loading from zarr every time
+        if modality in self.temporal_variable_names:
+            actual_variables = self.temporal_variable_names[modality]
+        else:
+            # Fallback: load if not cached (shouldn't happen normally)
+            actual_variables = self.zarr_root[f'temporal_modalities/{modality}/variable_names'][:]
+            if not isinstance(actual_variables, list):
+                actual_variables = actual_variables.tolist()
 
         data = data[:, [actual_variables.index(var) for var in variables]]
 
@@ -363,9 +384,26 @@ class CropFMDataset(Dataset):
         # Concatenate aez_id with 6 calendar values
         return torch.from_numpy(np.concatenate([[aez_id], calendar])).long()
     
+    def _load_week_indices_from_shape(self, T: int) -> torch.Tensor:
+        """
+        Generate week indices for temporal positional encoding from shape.
+        Uses timestep indices directly as week indices (0-51), since all temporal modalities
+        share the same timesteps and week encoding.
+        
+        Args:
+            T: Number of timesteps (from already loaded temporal modality)
+            
+        Returns:
+            Tensor of shape (T,) containing week indices (0-51) for each timestep
+        """
+        # Use timestep indices directly as week indices (modulo 52)
+        week_indices = np.arange(T) % 52
+        
+        return torch.from_numpy(week_indices).long()
+    
     def _load_week_indices(self, actual_idx: int) -> torch.Tensor:
         """
-        Load week indices for temporal positional encoding.
+        Load week indices for temporal positional encoding (legacy method).
         Uses timestep indices directly as week indices (0-51), since all temporal modalities
         share the same timesteps and week encoding.
         
