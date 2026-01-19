@@ -20,19 +20,6 @@ class CropMAEModule(LightningModule):
         warmup_epochs: Warmup epochs
         max_epochs: Maximum epochs
 
-    Example:
-        >>> model = CropMAE(
-        ...     modalities=cfg.data.modalities,
-        ...     **cfg.model
-        ... )
-        >>> module = CropMAEModule(model=model, **cfg.model)
-        >>> trainer = Trainer(
-        ...     **cfg.trainer,
-        ...     callbacks=callbacks["callbacks"],
-        ...     logger=callbacks["loggers"],
-        ... )
-        >>> trainer.fit(module, datamodule=datamodule)
-        >>> trainer.test(module, datamodule=datamodule)
     """
 
     def __init__(

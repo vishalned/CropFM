@@ -70,13 +70,13 @@ model:
 # Data configuration
 data:
   # module parameters
-  batch_size: 128
+  batch_size: 128  # Increased from 128 to better utilize A100 80GB GPU
   num_workers: 1
 
   # dataset parameters
-  zarr_path: "${hydra:runtime.cwd}/data/zarr_files/europe_data_1200_merged_rechunked.zarr" # cleaned2 is the old version
+  zarr_path: "${hydra:runtime.cwd}/data/zarr_files/europe_data_1200_merged_cleaned2_rechunked.zarr" # cleaned2 is the old version
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
   seed: *seed_everything
-  pin_memory: False
+  pin_memory: True
