@@ -59,9 +59,9 @@ def configure_callbacks(cfg, model, pretraining=False):
                 configurations["callbacks"].append(
                     ModelCheckpoint(
                         monitor=(
-                            f"val/{model.primary_metric_name}"
+                            f"val_{model.primary_metric_name}"
                             if not pretraining
-                            else f"train/loss"
+                            else f"train_loss"
                         ),
                         mode=configs.checkpoint.mode,
                         save_top_k=configs.checkpoint.save_top_k,
@@ -75,7 +75,7 @@ def configure_callbacks(cfg, model, pretraining=False):
                     raise ValueError("Early stopping is not supported for pretraining")
                 configurations["callbacks"].append(
                     EarlyStopping(
-                        monitor=f"val/{model.primary_metric_name}",
+                        monitor=f"val_{model.primary_metric_name}",
                         mode="max",
                         patience=10,
                         verbose=True,

@@ -10,4 +10,6 @@
 source ~/.bashrc
 conda activate cropfm
 
+module load 2024 CUDA/12.6.0
+
 srun python -u src/cropfm/data/download_modalities.py
