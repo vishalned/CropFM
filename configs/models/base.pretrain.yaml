@@ -65,6 +65,34 @@ model:
   mask_ratio: 0.75
   max_sequence_length: 1000
   use_pos_embedding: true
+  
+  # Masking configuration using Hydra _target_ instantiation
+  masking:
+    _target_: cropfm.models.arch.masking.RandomMasking
+    mask_ratio: ${model.mask_ratio}
+  
+  # Attention configuration using Hydra _target_ instantiation
+  encoder_attention:
+    _target_: cropfm.models.arch.attention.SlidingWindowAttention
+    dim: ${model.embedding_dim}
+    num_heads: ${model.encoder_num_heads}
+    window_size: 64
+    qkv_bias: false
+    attn_drop: 0.0
+    proj_drop: 0.0
+    causal: false
+  
+  decoder_attention:
+    _target_: cropfm.models.arch.attention.SlidingWindowAttention
+    dim: ${model.decoder_embed_dim}
+    num_heads: ${model.decoder_num_heads}
+    window_size: 64
+    qkv_bias: false
+    attn_drop: 0.0
+    proj_drop: 0.0
+    causal: false
+    # To use standard attention instead, change _target_ to:
+    # _target_: cropfm.models.arch.attention.Attention and remove window_size and causal parameters
 
 
 # Data configuration

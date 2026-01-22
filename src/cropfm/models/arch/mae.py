@@ -3,8 +3,10 @@
 import numpy as np
 import torch
 from torch import nn
+from omegaconf import DictConfig, OmegaConf
 
 from cropfm.models.arch.transformer import TransformerBlock
+from cropfm.models.arch.masking import RandomMasking
 
 
 def get_sinusoid_encoding_table(positions: int | list[int], d_hid: int, T: int = 10000) -> torch.Tensor:
@@ -133,57 +135,6 @@ class ModalityTokenizer(nn.Module):
         return torch.cat(tokens, dim=1)
 
 
-class RandomMasking(nn.Module):
-    """Random masking module for MAE
-    Args:
-        mask_ratio: Ratio of tokens to mask
-    Returns:
-        Masked input
-    """
-
-    def __init__(self, mask_ratio: float = 0.75):
-        super().__init__()
-        self.mask_ratio = mask_ratio
-
-    def forward(
-        self, x: torch.Tensor, mask_ratio: float = 0.75
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Forward pass for RandomMasking
-        Args:
-            x: Input tensor
-            mask_ratio: Ratio of tokens to mask
-        Returns:
-            Masked input
-            Masked input
-            Kept indices
-            Removed indices
-        """
-        B, N, C = x.shape
-        device = x.device
-
-        num_masked = int(N * self.mask_ratio)
-        num_kept = N - num_masked
-        indices = torch.rand(B, N, device=device).argsort(dim=1)
-        mask = indices < num_masked
-
-        kept_indices = torch.zeros(B, num_kept, dtype=torch.long, device=device)
-        removed_indices = torch.zeros(B, num_masked, dtype=torch.long, device=device)
-        masked_x = torch.zeros(B, num_kept, C, device=device)
-
-        for b in range(B):
-            batch_mask = mask[b]
-            batch_kept_idx = torch.where(~batch_mask)[0]
-            batch_removed_idx = torch.where(batch_mask)[0]
-            kept_len = len(batch_kept_idx)
-            removed_len = len(batch_removed_idx)
-            kept_indices[b, :kept_len] = batch_kept_idx
-            removed_indices[b, :removed_len] = batch_removed_idx
-            masked_x[b, :kept_len] = x[b][~batch_mask] # store the actual token embeddings for the kept tokens
-
-        return masked_x, mask, kept_indices, removed_indices
-
-
 class Encoder(nn.Module):
     """Encoder module for MAE
     Args:
@@ -212,6 +163,7 @@ class Encoder(nn.Module):
         max_sequence_length: int = 1000,
         use_pos_embedding: bool = True,
         num_modalities: int = 8,
+        attention_config: DictConfig | None = None,
     ):
         super().__init__()
         self.embedding_dim = embedding_dim
@@ -226,6 +178,7 @@ class Encoder(nn.Module):
                     qkv_bias=qkv_bias,
                     drop=drop,
                     attn_drop=attn_drop,
+                    attention_config=attention_config,
                 )
                 for _ in range(depth)
             ]
@@ -325,6 +278,7 @@ class Decoder(nn.Module):
         max_sequence_length: int = 1000,
         use_pos_embedding: bool = True,
         num_modalities: int = 8,
+        attention_config: DictConfig | None = None,
     ):
         super().__init__()
         self.decoder_embed_dim = decoder_embed_dim
@@ -342,6 +296,7 @@ class Decoder(nn.Module):
                     qkv_bias=qkv_bias,
                     drop=drop,
                     attn_drop=attn_drop,
+                    attention_config=attention_config,
                 )
                 for _ in range(decoder_depth)
             ]
@@ -481,6 +436,9 @@ class CropMAE(nn.Module):
         max_sequence_length: int = 1000,
         use_pos_embedding: bool = True,
         weight_decay: float = 0.05,
+        encoder_attention: DictConfig | None = None,
+        decoder_attention: DictConfig | None = None,
+        masking_config: DictConfig | None = None,
         **kwargs
     ):
         super().__init__()
@@ -518,7 +476,18 @@ class CropMAE(nn.Module):
             modality_dims=modality_dims,
             embedding_dim=embedding_dim,
         )
-        self.masking = RandomMasking(mask_ratio=mask_ratio)
+        
+        # Handle masking instantiation
+        if masking_config is not None:
+            from hydra.utils import instantiate
+            # Override mask_ratio if not set in config
+            masking_cfg = OmegaConf.create(OmegaConf.to_container(masking_config, resolve=True))
+            if 'mask_ratio' not in masking_cfg:
+                masking_cfg.mask_ratio = mask_ratio
+            self.masking = instantiate(masking_cfg)
+        else:
+            # Fallback to default RandomMasking
+            self.masking = RandomMasking(mask_ratio=mask_ratio)
         self.encoder = Encoder(
             embedding_dim=embedding_dim,
             depth=encoder_depth,
@@ -527,6 +496,7 @@ class CropMAE(nn.Module):
             max_sequence_length=max_sequence_length,
             use_pos_embedding=use_pos_embedding,
             num_modalities=num_modalities,
+            attention_config=encoder_attention,
         )
         self.decoder = Decoder(
             encoder_embed_dim=embedding_dim,
@@ -537,6 +507,7 @@ class CropMAE(nn.Module):
             max_sequence_length=max_sequence_length,
             use_pos_embedding=use_pos_embedding,
             num_modalities=num_modalities,
+            attention_config=decoder_attention,
         )
         self.reconstruction_heads = nn.ModuleDict(
             {
