@@ -68,15 +68,15 @@ model:
   
   # Masking configuration using Hydra _target_ instantiation
   masking:
-    _target_: cropfm.models.arch.masking.RandomMasking
-    mask_ratio: ${model.mask_ratio}
-    # Alternative: StructuredMasking that randomly selects one of 4 strategies
-    # _target_: cropfm.models.arch.masking.StructuredMasking
+    # _target_: cropfm.models.arch.masking.RandomMasking
     # mask_ratio: ${model.mask_ratio}
-    # modality_mask_ratio: 0.45  # Ratio of modalities to mask
-    # timestep_mask_ratio: 0.5   # Ratio of timesteps to mask per modality
-    # contiguous_pattern: ["monthly", "first_half", "second_half"]  # Multiple patterns
-    # strategy_weights: [0.25, 0.25, 0.25, 0.25]  # [random, modality, timesteps, contiguous]
+    # Alternative: StructuredMasking that randomly selects one of 4 strategies
+    _target_: cropfm.models.arch.masking.StructuredMasking
+    mask_ratio: ${model.mask_ratio}
+    modality_mask_ratio: 0.45  # Ratio of modalities to mask
+    timestep_mask_ratio: 0.5   # Ratio of timesteps to mask per modality
+    contiguous_pattern: ["monthly", "first_half", "second_half"]  # Multiple patterns
+    strategy_weights: [0.25, 0.25, 0.25, 0.25]  # [random, modality, timesteps, contiguous]
   
   # Attention configuration using Hydra _target_ instantiation
   encoder_attention:

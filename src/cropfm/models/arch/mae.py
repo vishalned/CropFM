@@ -438,7 +438,7 @@ class CropMAE(nn.Module):
         weight_decay: float = 0.05,
         encoder_attention: DictConfig | None = None,
         decoder_attention: DictConfig | None = None,
-        masking_config: DictConfig | None = None,
+        masking: DictConfig | None = None,
         **kwargs
     ):
         super().__init__()
@@ -478,16 +478,17 @@ class CropMAE(nn.Module):
         )
         
         # Handle masking instantiation
-        if masking_config is not None:
+        if masking is not None:
             from hydra.utils import instantiate
             # Override mask_ratio if not set in config
-            masking_cfg = OmegaConf.create(OmegaConf.to_container(masking_config, resolve=True))
+            masking_cfg = OmegaConf.create(OmegaConf.to_container(masking, resolve=True))
             if 'mask_ratio' not in masking_cfg:
                 masking_cfg.mask_ratio = mask_ratio
             self.masking = instantiate(masking_cfg)
         else:
-            # Fallback to default RandomMasking
-            self.masking = RandomMasking(mask_ratio=mask_ratio)
+            # raise an error
+            raise RuntimeError("Masking configuration is required")
+
         self.encoder = Encoder(
             embedding_dim=embedding_dim,
             depth=encoder_depth,
