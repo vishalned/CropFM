@@ -3,7 +3,7 @@
 from cropfm.models.arch.mae import CropMAE
 from cropfm.models.arch.attention import Attention, SlidingWindowAttention
 from cropfm.models.arch.transformer import Mlp, TransformerBlock
-from cropfm.models.arch.masking import RandomMasking
+from cropfm.models.arch.masking import RandomMasking, StructuredMasking
 
 __all__ = [
     "Attention",
@@ -12,5 +12,6 @@ __all__ = [
     "TransformerBlock",
     "CropMAE",
     "RandomMasking",
+    "StructuredMasking",
 ]
 

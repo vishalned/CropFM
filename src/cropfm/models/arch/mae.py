@@ -567,9 +567,9 @@ class CropMAE(nn.Module):
                 valid_mask_dict[modality] = None
 
         tokens = self.tokenizer(data_dict, valid_mask_dict)
-        masked_tokens, mask, kept_indices, removed_indices = self.masking(tokens, mask)
         
-        # Build week_indices, is_temporal, and modality_indices tensors for positional encoding
+        # Build week_indices, is_temporal, modality_indices, and modality_boundaries BEFORE masking
+        # (needed for structured masking strategies)
         B = tokens.shape[0]
         N_total = tokens.shape[1]
         device = tokens.device
@@ -579,9 +579,12 @@ class CropMAE(nn.Module):
         is_temporal = torch.zeros(B, N_total, dtype=torch.bool, device=device)
         modality_indices = torch.zeros(B, N_total, dtype=torch.long, device=device)
         
+        # Build modality_boundaries for structured masking
+        modality_boundaries = {}
         start_idx = 0
         for modality_name, modality_data in data_dict.items():
             B_mod, T, D = modality_data.shape
+            modality_boundaries[modality_name] = (start_idx, start_idx + T)
             
             # Set modality index for all tokens of this modality
             if modality_name in self.modality_to_idx:
@@ -608,6 +611,21 @@ class CropMAE(nn.Module):
                 is_temporal[:, start_idx:start_idx + T] = False
             
             start_idx += T
+        
+        # Call masking with structure information (if masking supports it)
+        # Check if masking has the extended signature by trying to call it
+        try:
+            masked_tokens, mask, kept_indices, removed_indices = self.masking(
+                tokens,
+                mask=mask,
+                modality_boundaries=modality_boundaries,
+                week_indices=week_indices,
+                is_temporal=is_temporal,
+                modality_indices=modality_indices,
+            )
+        except TypeError:
+            # Fallback for RandomMasking which doesn't accept these parameters
+            masked_tokens, mask, kept_indices, removed_indices = self.masking(tokens, mask)
         
         # Extract week_indices, is_temporal, and modality_indices for kept tokens only (for encoder)
         kept_week_indices = None
