@@ -541,14 +541,17 @@ class CropMAE(nn.Module):
 
     def forward(
         self, x: dict[str, torch.Tensor], mask: torch.Tensor | None = None
-    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    ) -> dict[str, dict[str, torch.Tensor]]:
         """
         Forward pass for CropMAE
         Args:
             x: Input tensor
             mask: Mask tensor
         Returns:
-            Tuple of (reconstructions per modality, mask per modality)
+            Dictionary with keys:
+            - 'reconstructions': dict mapping modality name to reconstruction tensor
+            - 'modality_masks': dict mapping modality name to mask tensor
+            (Additional keys can be added by subclasses)
         """
         # x is expected to be a dict[modality] -> {'data': tensor, 'valid_mask': tensor or None}
         # For now we ignore valid_mask here – masking is handled at token level.
@@ -666,4 +669,8 @@ class CropMAE(nn.Module):
             reconstructions[modality_name] = modality_recon
             start_idx += T
 
-        return reconstructions, modality_masks
+        # Return as dictionary
+        return {
+            'reconstructions': reconstructions,
+            'modality_masks': modality_masks,
+        }

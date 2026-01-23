@@ -5,8 +5,10 @@ import torch.nn as nn
 from lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from omegaconf import DictConfig, OmegaConf
 
 from cropfm.models.arch.mae import CropMAE
+from cropfm.models.utils.losses import compute_losses, aggregate_losses
 
 
 class CropMAEModule(LightningModule):
@@ -29,6 +31,7 @@ class CropMAEModule(LightningModule):
         weight_decay: float = 0.05,
         warmup_epochs: int = 10,
         max_epochs: int = 100,
+        loss_aggregation: dict | None = None,
         **kwargs
     ):
         super().__init__()
@@ -40,7 +43,15 @@ class CropMAEModule(LightningModule):
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
         self.max_epochs = max_epochs
-        self.criterion = nn.MSELoss()
+        
+        # Loss aggregation configuration
+        if loss_aggregation is None:
+            loss_aggregation = {'equal_weighting': True}
+        elif isinstance(loss_aggregation, DictConfig):
+            loss_aggregation = OmegaConf.to_container(loss_aggregation, resolve=True)
+        
+        self.equal_weighting = loss_aggregation.get('equal_weighting', True)
+        self.loss_weights = loss_aggregation.get('weights', None)
 
     def forward(self, x: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """
@@ -48,10 +59,10 @@ class CropMAEModule(LightningModule):
         Args:
             x: Input data
         Returns:
-            Reconstructions
+            Reconstructions dict
         """
-        reconstructions, _ = self.model(x)
-        return reconstructions
+        output = self.model(x)
+        return output.get('reconstructions', {})
 
     def training_step(self, batch: dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """
@@ -62,51 +73,32 @@ class CropMAEModule(LightningModule):
         Returns:
             Loss
         """
-        reconstructions, modality_masks = self.model(batch)
-        total_loss = 0.0
-        num_modalities = 0
-
-        for modality_name in batch.keys():
-            if modality_name in reconstructions:
-                pred = reconstructions[modality_name]  # (B, T, D)
-                target = batch[modality_name]['data']  # (B, T, D)
-                mask = modality_masks[modality_name]  # (B, T) - True for masked tokens
-                
-                # Compute MSE only on masked tokens
-                # Expand mask to match feature dimension: (B, T) -> (B, T, D)
-                mask_expanded = mask.unsqueeze(-1).expand_as(pred)  # (B, T, D)
-                
-                # Compute loss only where:
-                #  - token is masked by MAE (mask_expanded == True)
-                #  - and target is not NaN (to avoid NaN losses from missing data)
-                # IMPORTANT: we must index with the mask instead of multiplying by it,
-                #            because 0 * NaN is still NaN in floating-point arithmetic.
-                diff = pred - target
-                valid_target_mask = ~torch.isnan(target)
-                combined_mask = mask_expanded & valid_target_mask  # (B, T, D)
-
-                denom = combined_mask.sum()
-                if denom == 0:
-                    continue
-
-                # Select only masked & valid positions, then compute MSE over them
-                selected_diff = diff[combined_mask]  # (denom,)
-                loss = (selected_diff ** 2).mean()
-
-                total_loss += loss
-                num_modalities += 1
+        output = self.model(batch)
+        
+        # Compute all losses from output
+        losses = compute_losses(output, batch)
+        
+        # Log individual losses (grouped by loss type)
+        for loss_type, loss_dict in losses.items():
+            for loss_name, loss_value in loss_dict.items():
                 self.log(
-                    f"train_loss_{modality_name}",
-                    loss,
+                    f"train_loss_{loss_type}_{loss_name}",
+                    loss_value,
                     on_step=True,
                     on_epoch=True,
                     prog_bar=False,
                     logger=True,
                 )
-
-        avg_loss = total_loss / num_modalities if num_modalities > 0 else total_loss
-        self.log("train_loss", avg_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        return avg_loss
+        
+        # Aggregate losses
+        total_loss = aggregate_losses(
+            losses=losses,
+            equal_weighting=self.equal_weighting,
+            weights=self.loss_weights,
+        )
+        
+        self.log("train_loss", total_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        return total_loss
 
     def configure_optimizers(self):
         """

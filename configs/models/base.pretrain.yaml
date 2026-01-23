@@ -68,38 +68,44 @@ model:
   
   # Masking configuration using Hydra _target_ instantiation
   masking:
-    # _target_: cropfm.models.arch.masking.RandomMasking
-    # mask_ratio: ${model.mask_ratio}
-    # Alternative: StructuredMasking that randomly selects one of 4 strategies
-    _target_: cropfm.models.arch.masking.StructuredMasking
+    _target_: cropfm.models.arch.masking.RandomMasking
     mask_ratio: ${model.mask_ratio}
-    modality_mask_ratio: 0.45  # Ratio of modalities to mask
-    timestep_mask_ratio: 0.5   # Ratio of timesteps to mask per modality
-    contiguous_pattern: ["monthly", "first_half", "second_half"]  # Multiple patterns
-    strategy_weights: [0.25, 0.25, 0.25, 0.25]  # [random, modality, timesteps, contiguous]
+    # Alternative: StructuredMasking that randomly selects one of 4 strategies
+    # _target_: cropfm.models.arch.masking.StructuredMasking
+    # mask_ratio: ${model.mask_ratio}
+    # modality_mask_ratio: 0.45  # Ratio of modalities to mask
+    # timestep_mask_ratio: 0.5   # Ratio of timesteps to mask per modality
+    # contiguous_pattern: ["monthly", "first_half", "second_half"]  # Multiple patterns
+    # strategy_weights: [0.25, 0.25, 0.25, 0.25]  # [random, modality, timesteps, contiguous]
   
   # Attention configuration using Hydra _target_ instantiation
   encoder_attention:
-    _target_: cropfm.models.arch.attention.SlidingWindowAttention
+    _target_: cropfm.models.arch.attention.Attention
     dim: ${model.embedding_dim}
     num_heads: ${model.encoder_num_heads}
-    window_size: 64
     qkv_bias: false
     attn_drop: 0.0
     proj_drop: 0.0
-    causal: false
   
   decoder_attention:
-    _target_: cropfm.models.arch.attention.SlidingWindowAttention
+    _target_: cropfm.models.arch.attention.Attention
     dim: ${model.decoder_embed_dim}
     num_heads: ${model.decoder_num_heads}
-    window_size: 64
     qkv_bias: false
     attn_drop: 0.0
     proj_drop: 0.0
-    causal: false
-    # To use standard attention instead, change _target_ to:
-    # _target_: cropfm.models.arch.attention.Attention and remove window_size and causal parameters
+
+    # To use sliding window attention instead, change _target_ to:
+    # _target_: cropfm.models.arch.attention.SlidingWindowAttention
+    # window_size: 64
+    # causal: false
+  
+  # Loss aggregation configuration
+  loss_aggregation:
+    equal_weighting: true  # If true, average all losses equally. If false, use weights dict below.
+    # weights:  # Optional: dict mapping loss name to weight (only used if equal_weighting=false)
+    #   reconstruction: 1.0
+    #   # Add other loss types here as needed
 
 
 # Data configuration
