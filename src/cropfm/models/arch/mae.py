@@ -480,8 +480,13 @@ class CropMAE(nn.Module):
         # Handle masking instantiation
         if masking is not None:
             from hydra.utils import instantiate
+            # Ensure masking is a DictConfig for instantiate()
+            if isinstance(masking, DictConfig):
+                masking_cfg = masking.copy()
+            else:
+                # Convert dict to DictConfig
+                masking_cfg = OmegaConf.create(masking)
             # Override mask_ratio if not set in config
-            masking_cfg = OmegaConf.create(OmegaConf.to_container(masking, resolve=True))
             if 'mask_ratio' not in masking_cfg:
                 masking_cfg.mask_ratio = mask_ratio
             self.masking = instantiate(masking_cfg)
@@ -646,6 +651,9 @@ class CropMAE(nn.Module):
             is_temporal=kept_is_temporal,
             modality_indices=kept_modality_indices
         )
+        # Exclude CLS token for reconstruction: decoder expects kept tokens only; CLS is for global tasks
+        if getattr(self.encoder, "use_cls_token", False):
+            encoded_tokens = encoded_tokens[:, 1:, :]
         decoded_tokens = self.decoder(
             encoded_tokens, 
             kept_indices, 

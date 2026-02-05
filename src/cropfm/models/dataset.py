@@ -130,10 +130,8 @@ class CropFMIterableDataset(IterableDataset):
                 arr_cache[f"{mod}_elevation"] = root[f"static_modalities/elevation/elevation"]
                 arr_cache[f"{mod}_slope"] = root[f"static_modalities/elevation/slope"]
             elif mod == 'worldcereal_cropmask':
-                arr_cache[f"{mod}_aez"] = root[f"static_modalities/worldcereal_cropmask/aez_id"]
                 arr_cache[f"{mod}_mask"] = root[f"static_modalities/worldcereal_cropmask/crop_mask"]
             elif mod == 'worldcereal_cropcalendar':
-                arr_cache[f"{mod}_aez"] = root[f"static_modalities/worldcereal_cropcalendar/aez_id"]
                 arr_cache[f"{mod}_cal"] = root[f"static_modalities/worldcereal_cropcalendar/crop_calendar"]
             elif mod == 'encoded_coordinates':
                 arr_cache[mod] = root['metadata/encoded_coordinates']
@@ -238,29 +236,21 @@ class CropFMIterableDataset(IterableDataset):
                 
                 elif mod == 'worldcereal_cropmask':
                     # Pre-load entire chunk: (chunk_len,)
-                    aez_chunk = arr_cache[f"{mod}_aez"][start:end]
                     mask_chunk = arr_cache[f"{mod}_mask"][start:end]
                     
-                    # Vectorized: Stack and convert: (chunk_len, 2)
-                    mask_data_array = np.stack([aez_chunk, mask_chunk], axis=1)
-                    mask_data_tensor = torch.from_numpy(mask_data_array).long()
+                    # Vectorized: Convert: (chunk_len,)
+                    mask_data_tensor = torch.from_numpy(mask_chunk).long()
                     
-                    static_chunk_data[mod] = mask_data_tensor  # (chunk_len, 2)
+                    static_chunk_data[mod] = mask_data_tensor  # (chunk_len,)
                 
                 elif mod == 'worldcereal_cropcalendar':
                     # Pre-load entire chunk
-                    aez_chunk = arr_cache[f"{mod}_aez"][start:end]  # (chunk_len,)
                     cal_chunk = arr_cache[f"{mod}_cal"][start:end]  # (chunk_len, 6)
                     
-                    # Vectorized: Concatenate aez with calendar for each sample
-                    # Shape: (chunk_len, 7) where first column is aez, rest is calendar
-                    calendar_data_list = []
-                    for i in range(chunk_len):
-                        calendar_data_list.append(np.concatenate([[aez_chunk[i]], cal_chunk[i]]))
-                    calendar_data_array = np.stack(calendar_data_list, axis=0)
-                    calendar_data_tensor = torch.from_numpy(calendar_data_array).long()
+                    # Vectorized: Convert: (chunk_len, 6)
+                    calendar_data_tensor = torch.from_numpy(cal_chunk).long()
                     
-                    static_chunk_data[mod] = calendar_data_tensor  # (chunk_len, 7)
+                    static_chunk_data[mod] = calendar_data_tensor  # (chunk_len, 6)
                 
                 elif mod == 'encoded_coordinates':
                     # Already loaded in loaded_chunk
@@ -300,11 +290,11 @@ class CropFMIterableDataset(IterableDataset):
                             }
                         elif mod == 'worldcereal_cropmask':
                             sample[mod] = {
-                                'data': static_chunk_data[mod][i]  # (2,)
+                                'data': static_chunk_data[mod][i]  # (,)
                             }
                         elif mod == 'worldcereal_cropcalendar':
                             sample[mod] = {
-                                'data': static_chunk_data[mod][i]  # (7,)
+                                'data': static_chunk_data[mod][i]  # (6,)
                             }
                         elif mod == 'encoded_coordinates':
                             sample[mod] = {

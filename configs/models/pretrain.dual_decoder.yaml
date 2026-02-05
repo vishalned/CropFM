@@ -1,0 +1,18 @@
+# Hydra configuration for CropMAE training with WorldCereal dual decoder (Option 1)
+defaults:
+  - base.pretrain
+
+# Override model to use WorldCereal dual decoder variant
+model:
+  _target_: cropfm.models.arch.mae_worldcereal_dual.CropMAEWorldcerealDual
+  
+  # WorldCereal-specific parameters
+  use_cls_token: true  # Use CLS token for global representation (if false, uses mean pooling)
+  
+  # Loss aggregation configuration
+  loss_aggregation:
+    equal_weighting: true
+    # Optional: specify custom weights
+    # weights:
+    #   reconstruction: 1.0
+    #   worldcereal: 1.0

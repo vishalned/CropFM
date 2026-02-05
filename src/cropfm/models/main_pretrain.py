@@ -5,6 +5,7 @@ from lightning import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 from lightning.pytorch.loggers import WandbLogger
 from omegaconf import DictConfig, OmegaConf
+from hydra.utils import instantiate
 
 from cropfm.models.arch.mae import CropMAE
 from cropfm.models.module import CropMAEModule
@@ -18,10 +19,16 @@ def main(cfg: DictConfig) -> None:
     # print("Configuration:")
     # print(OmegaConf.to_yaml(cfg))
 
-    arch = CropMAE(
-        modalities=cfg.data.modalities,
-        **cfg.model
-    )
+    
+    # Instantiate model - pass modalities as keyword argument to override
+    # Keep cfg.model as DictConfig so nested configs (masking, attention) remain DictConfig
+
+    arch = instantiate(cfg.model, modalities=cfg.data.modalities)
+
+    # arch = CropMAE(
+    #     modalities=cfg.data.modalities,
+    #     **cfg.model
+    # )
 
     module = CropMAEModule(
         model=arch,

@@ -1,0 +1,20 @@
+# Hydra configuration for CropMAE training with WorldCereal contrastive prediction (Option 2)
+defaults:
+  - base.pretrain
+
+# Override model to use WorldCereal contrastive variant
+model:
+  _target_: cropfm.models.arch.mae_worldcereal_contrastive.CropMAEWorldcerealContrastive
+  
+  # WorldCereal-specific parameters
+  use_cls_token: true  # Use CLS token for global representation (if false, uses mean pooling)
+  projection_dim: 128  # Dimension for contrastive projection MLP
+  
+  # Loss aggregation configuration
+  loss_aggregation:
+    equal_weighting: true
+    # Optional: specify custom weights
+    # weights:
+    #   reconstruction: 1.0
+    #   worldcereal: 1.0
+    #   contrastive: 1.0
