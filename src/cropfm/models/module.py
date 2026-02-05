@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -98,6 +99,25 @@ class CropMAEModule(LightningModule):
         )
         
         self.log("train_loss", total_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        # Log contrastive collapse metrics (every 50 steps to limit overhead)
+        if (
+            batch_idx % 50 == 0
+            and "projected_representation" in output
+        ):
+            pr = output["projected_representation"].detach()
+            B, D = pr.shape
+            if B >= 2:
+                repr_std = pr.std(dim=0).mean()
+                repr_norm = pr.norm(dim=1).mean()
+                pr_norm = F.normalize(pr, dim=1)
+                sim = pr_norm @ pr_norm.T
+                mask = ~torch.eye(B, dtype=torch.bool, device=pr.device)
+                max_offdiag_sim = sim[mask].reshape(B, B - 1).max(dim=1)[0].mean()
+                self.log("contrastive/repr_std", repr_std, on_step=True, on_epoch=False, logger=True)
+                self.log("contrastive/repr_norm", repr_norm, on_step=True, on_epoch=False, logger=True)
+                self.log("contrastive/max_offdiag_sim", max_offdiag_sim, on_step=True, on_epoch=False, logger=True)
+
         return total_loss
 
     def configure_optimizers(self):
