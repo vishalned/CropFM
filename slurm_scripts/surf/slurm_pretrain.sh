@@ -41,6 +41,9 @@ cp -r ${SOURCE_NORM_PATH} ${SCRATCH_DIR}
 ## change CROPFM_DATA_DIR to SCRATCH_DIR
 export CROPFM_DATA_DIR=${SCRATCH_DIR}
 
-
 # Run pretraining
-python -u src/cropfm/models/main_pretrain.py
+python -u src/cropfm/models/main_pretrain.py \
+    --config-name pretrain.contrastive \
+    hydra.run.dir=experiments/pretrain/contrastive_run \
+    callbacks.callbacks_list=[checkpoint,real_time_memory,model_summary,wandb]
+

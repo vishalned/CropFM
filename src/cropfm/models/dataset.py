@@ -238,8 +238,8 @@ class CropFMIterableDataset(IterableDataset):
                     # Pre-load entire chunk: (chunk_len,)
                     mask_chunk = arr_cache[f"{mod}_mask"][start:end]
                     
-                    # Vectorized: Convert: (chunk_len,)
-                    mask_data_tensor = torch.from_numpy(mask_chunk).long()
+                    # Vectorized: Convert and clamp invalid values (-1, etc.) to 0
+                    mask_data_tensor = torch.from_numpy(mask_chunk).long().clamp(min=0, max=3)
                     
                     static_chunk_data[mod] = mask_data_tensor  # (chunk_len,)
                 

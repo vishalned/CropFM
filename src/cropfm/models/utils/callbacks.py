@@ -1,6 +1,7 @@
 from pytorch_lightning.callbacks import Callback
 import torch
 import psutil
+from omegaconf import OmegaConf
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, ModelSummary
 from pytorch_lightning.loggers import WandbLogger
 
@@ -49,10 +50,12 @@ def configure_callbacks(cfg, model, pretraining=False):
     for callback in callbacks_list:
         match callback:
             case "wandb":
+                config_dict = OmegaConf.to_container(cfg, resolve=True)
                 configurations["loggers"].append(
                     WandbLogger(
                         project=configs.wandb.project,
                         name=configs.wandb.name,
+                        config=config_dict,
                     )
                 )
             case "checkpoint":

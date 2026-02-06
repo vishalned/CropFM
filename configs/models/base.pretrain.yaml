@@ -41,9 +41,9 @@ trainer:
   num_nodes: 1
   accelerator: gpu
   strategy: auto
-  accumulate_grad_batches: 1
+  accumulate_grad_batches: 4
   min_epochs: 1
-  max_epochs: 200
+  max_epochs: 20
   enable_progress_bar: True
   fast_dev_run: False
 
@@ -113,8 +113,8 @@ model:
 # Data configuration
 data:
   # module parameters
-  batch_size: 512  # Increased from 128 to better utilize A100 80GB GPU
-  num_workers: 1
+  batch_size: 1024  # Increased from 128 to better utilize A100 80GB GPU
+  num_workers: 2
 
   # dataset parameters
   # zarr_path: "${hydra:runtime.cwd}/data/zarr_files/europe_data_1200_merged_cleaned2_rechunked.zarr" # cleaned2 is the old version
