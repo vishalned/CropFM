@@ -36,7 +36,7 @@ class CropMAEModule(LightningModule):
         **kwargs
     ):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=['model'])
 
         self.model = model
 

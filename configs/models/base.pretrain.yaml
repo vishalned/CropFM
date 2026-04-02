@@ -40,10 +40,10 @@ trainer:
   devices: 1
   num_nodes: 1
   accelerator: gpu
-  strategy: auto
-  accumulate_grad_batches: 4
+  strategy: ddp_find_unused_parameters_true
+  accumulate_grad_batches: 8
   min_epochs: 1
-  max_epochs: 20
+  max_epochs: 40
   enable_progress_bar: True
   fast_dev_run: False
 
@@ -57,15 +57,15 @@ model:
   warmup_epochs: 10 # still not implemented
 
   # Architecture hyperparameters
-  embedding_dim: 32
-  encoder_depth: 2
+  embedding_dim: 256
+  encoder_depth: 4
   encoder_num_heads: 8
   decoder_embed_dim: 128
   decoder_depth: 2
-  decoder_num_heads: 8
+  decoder_num_heads: 4
   mlp_ratio: 4.0
   mask_ratio: 0.75
-  max_sequence_length: 1000
+  max_sequence_length: 512
   use_pos_embedding: true
   
   # Masking configuration using Hydra _target_ instantiation
@@ -113,13 +113,12 @@ model:
 # Data configuration
 data:
   # module parameters
-  batch_size: 1024  # Increased from 128 to better utilize A100 80GB GPU
-  num_workers: 2
+  batch_size: 256  # Increased from 128 to better utilize A100 80GB GPU
+  num_workers: 4
 
   # dataset parameters
-  # zarr_path: "${hydra:runtime.cwd}/data/zarr_files/europe_data_1200_merged_cleaned2_rechunked.zarr" # cleaned2 is the old version
-  zarr_path: "${oc.env:CROPFM_DATA_DIR}/europe_data_1200_merged_cleaned2_rechunked.zarr"
-  # zarr_path: "/scratch-node/vnedungadi.18488199/europe_data_1200_merged_cleaned2_rechunked.zarr"
+  # zarr_path: "${oc.env:CROPFM_DATA_DIR}/europe_data_1200_merged_cleaned2_rechunked.zarr"
+  zarr_path: "${oc.env:CROPFM_DATA_DIR}/global_data_1200_merged_cleaned_rechunked.zarr"
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1

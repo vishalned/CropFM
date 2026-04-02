@@ -59,7 +59,8 @@ class CropFMIterableDataset(IterableDataset):
             self.start_idx, self.end_idx = val_end, total_samples
         
         # Prepare Normalization Tensors
-        norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats2.json'
+        # norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats2.json'
+        norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats_global.json'
         with open(norm_stats_path, 'r') as f:
             stats = json.load(f)
         self.norm_tensors = self._prepare_norm_tensors(stats)
