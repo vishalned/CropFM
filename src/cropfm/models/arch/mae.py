@@ -8,6 +8,9 @@ from omegaconf import DictConfig, OmegaConf
 from cropfm.models.arch.transformer import TransformerBlock
 from cropfm.models.arch.masking import RandomMasking
 
+# Batch dict keys that are not encoder inputs (targets / loss-only tensors stay on the batch)
+AUXILIARY_BATCH_KEYS = frozenset({'satclip_embedding'})
+
 
 def get_sinusoid_encoding_table(positions: int | list[int], d_hid: int, T: int = 10000) -> torch.Tensor:
     """Sinusoid position encoding table
@@ -341,14 +344,18 @@ class Decoder(nn.Module):
         N_total = num_kept + num_masked
         D = x.shape[-1]
 
-        mask_tokens = self.mask_token.unsqueeze(0).unsqueeze(0).expand(B, num_masked, D)
+        # Keep dtype aligned under mixed precision (e.g. bf16 autocast) to avoid index_put dtype mismatch.
+        mask_tokens = self.mask_token.unsqueeze(0).unsqueeze(0).expand(B, num_masked, D).to(dtype=x.dtype, device=device)
         x_full = torch.cat([x, mask_tokens], dim=1)
         combined_indices = torch.cat([kept_indices, removed_indices], dim=1)
 
         output = torch.zeros(B, N_total, D, device=device, dtype=x.dtype)
-        for b in range(B):
-            batch_indices = combined_indices[b]
-            output[b, batch_indices] = x_full[b]
+        # Vectorized equivalent of:
+        #   for b in range(B): output[b, combined_indices[b]] = x_full[b]
+        # combined_indices is a per-example permutation of [0..N_total-1], so each
+        # destination index is written exactly once.
+        index = combined_indices.unsqueeze(-1).expand(-1, -1, D)  # (B, N_total, D)
+        output.scatter_(dim=1, index=index, src=x_full)
 
         return output
 
@@ -558,6 +565,8 @@ class CropMAE(nn.Module):
             - 'modality_masks': dict mapping modality name to mask tensor
             (Additional keys can be added by subclasses)
         """
+        # Drop loss-only entries (e.g. raw lon/lat for SatCLIP while encoded_coordinates feed the model)
+        x = {k: v for k, v in x.items() if k not in AUXILIARY_BATCH_KEYS}
         # x is expected to be a dict[modality] -> {'data': tensor, 'valid_mask': tensor or None}
         # For now we ignore valid_mask here – masking is handled at token level.
         data_dict = {}

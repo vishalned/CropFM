@@ -180,28 +180,34 @@ class StructuredMasking(nn.Module):
         """
         B, N, C = x.shape
         device = x.device
-        
+
         # Count kept and masked tokens per batch
         num_kept_per_batch = (~mask).sum(dim=1)  # [B]
         num_masked_per_batch = mask.sum(dim=1)  # [B]
-        max_kept = num_kept_per_batch.max().item()
-        max_masked = num_masked_per_batch.max().item()
-        
-        kept_indices = torch.zeros(B, max_kept, dtype=torch.long, device=device)
-        removed_indices = torch.zeros(B, max_masked, dtype=torch.long, device=device)
-        masked_x = torch.zeros(B, max_kept, C, device=device)
-        
-        for b in range(B):
-            batch_mask = mask[b]
-            batch_kept_idx = torch.where(~batch_mask)[0]
-            batch_removed_idx = torch.where(batch_mask)[0]
-            kept_len = len(batch_kept_idx)
-            removed_len = len(batch_removed_idx)
-            
-            kept_indices[b, :kept_len] = batch_kept_idx
-            removed_indices[b, :removed_len] = batch_removed_idx
-            masked_x[b, :kept_len] = x[b][~batch_mask]
-        
+        max_kept = int(num_kept_per_batch.max().item())
+        max_masked = int(num_masked_per_batch.max().item())
+
+        # Sort indices so kept (False) come first, masked (True) last.
+        # This avoids per-sample Python loops and keeps everything on-device.
+        order = torch.argsort(mask.to(torch.int8), dim=1)  # (B, N)
+
+        kept_indices = order[:, :max_kept].contiguous()
+        removed_indices = order[:, N - max_masked :].contiguous() if max_masked > 0 else order[:, :0].contiguous()
+
+        # Zero out padded indices (to match prior behavior) and zero out gathered tokens for pads.
+        kept_valid = (torch.arange(max_kept, device=device).unsqueeze(0) < num_kept_per_batch.unsqueeze(1))  # (B, max_kept)
+        removed_valid = (torch.arange(max_masked, device=device).unsqueeze(0) < num_masked_per_batch.unsqueeze(1)) if max_masked > 0 else None
+
+        if max_kept > 0:
+            kept_indices = torch.where(kept_valid, kept_indices, torch.zeros((), dtype=torch.long, device=device))
+            masked_x = x.gather(1, kept_indices.unsqueeze(-1).expand(-1, -1, C))
+            masked_x = masked_x * kept_valid.unsqueeze(-1).to(dtype=masked_x.dtype)
+        else:
+            masked_x = x[:, :0, :]
+
+        if max_masked > 0 and removed_valid is not None:
+            removed_indices = torch.where(removed_valid, removed_indices, torch.zeros((), dtype=torch.long, device=device))
+
         return masked_x, mask, kept_indices, removed_indices
     
     def _random_mask(
@@ -272,22 +278,20 @@ class StructuredMasking(nn.Module):
         # Initialize mask (all False = keep all)
         mask = torch.zeros(B, N, dtype=torch.bool, device=device)
         
-        # For each modality, randomly mask timesteps
-        for mod_name, (start_idx, end_idx) in modality_boundaries.items():
+        # For each modality, randomly mask timesteps (vectorized over batch)
+        for _, (start_idx, end_idx) in modality_boundaries.items():
             T = end_idx - start_idx
-            
-            # Skip static modalities (T=1)
             if T <= 1:
                 continue
-            
-            # Calculate how many timesteps to mask
-            num_timesteps_to_mask = int(T * self.timestep_mask_ratio)
-            num_timesteps_to_mask = max(1, min(num_timesteps_to_mask, T - 1))
-            
-            # For each batch, randomly select timesteps to mask
-            for b in range(B):
-                timesteps_to_mask = torch.randperm(T, device=device)[:num_timesteps_to_mask]
-                mask[b, start_idx + timesteps_to_mask] = True
+
+            k = int(T * self.timestep_mask_ratio)
+            k = max(1, min(k, T - 1))
+
+            scores = torch.rand(B, T, device=device)
+            idx = scores.topk(k, largest=False, dim=1).indices  # (B, k)
+            mod_mask = torch.zeros(B, T, dtype=torch.bool, device=device)
+            mod_mask.scatter_(1, idx, True)
+            mask[:, start_idx:end_idx] = mod_mask
         
         return self._build_mask_outputs(x, mask)
     
@@ -328,29 +332,18 @@ class StructuredMasking(nn.Module):
             # Unknown pattern, fallback to random
             return self._random_mask(x, mask)
         
-        kept_weeks_set = set(kept_weeks)
+        keep = torch.zeros(52, dtype=torch.bool, device=device)
+        keep[torch.tensor(kept_weeks, dtype=torch.long, device=device)] = True
         
         # Initialize mask (all False = keep all)
         mask = torch.zeros(B, N, dtype=torch.bool, device=device)
         
-        # For temporal modalities, mask tokens that don't match kept weeks
-        for mod_name, (start_idx, end_idx) in modality_boundaries.items():
+        # For temporal modalities, mask tokens that don't match kept weeks (vectorized)
+        for _, (start_idx, end_idx) in modality_boundaries.items():
             # Only apply to temporal modalities
-            # Check if this modality has temporal tokens (use is_temporal)
-            mod_is_temporal = is_temporal[:, start_idx:end_idx].any().item()
-            
-            if not mod_is_temporal:
-                # Static modality: keep all
+            if not is_temporal[:, start_idx:end_idx].any().item():
                 continue
-            
-            # Get week indices for this modality
-            mod_week_indices = week_indices[:, start_idx:end_idx]  # [B, T]
-            
-            # Mask tokens where week index is NOT in kept_weeks
-            for b in range(B):
-                for t_idx in range(end_idx - start_idx):
-                    week_idx = mod_week_indices[b, t_idx].item()
-                    if week_idx not in kept_weeks_set:
-                        mask[b, start_idx + t_idx] = True
+            mod_week_indices = week_indices[:, start_idx:end_idx].long()  # (B, T)
+            mask[:, start_idx:end_idx] = ~keep[mod_week_indices]
         
         return self._build_mask_outputs(x, mask)

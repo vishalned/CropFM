@@ -57,12 +57,12 @@ modality_list:
       - 'lon_cos'
       - 'lat_sin'
       - 'lat_cos'
-  # worldcereal_cropmask:
-  #   variables:
-  #     - 'aez_id'
-  #     - 'crop_mask'
-  # worldcereal_cropcalendar:
-  #   variables:
-  #     - 'aez_id'
-  #     - 'crop_calendar'
-  #     - 'variable_names'
+  worldcereal_cropmask:
+    variables:
+      - 'aez_id'
+      - 'crop_mask'
+  worldcereal_cropcalendar:
+    variables:
+      - 'aez_id'
+      - 'crop_calendar'
+      - 'variable_names'

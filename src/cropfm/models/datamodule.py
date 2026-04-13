@@ -37,7 +37,11 @@ class CropFMDataModule(LightningDataModule):
         self.test_split = test_split
         self.seed = seed
         self.pin_memory = pin_memory
-        self.chunk_size = chunk_size
+        # IterableDataset workers build full batches locally. Use a chunk size that is
+        # larger than the batch and not an exact multiple of it to reduce synchronized
+        # worker reload boundaries that can starve the queue intermittently.
+        min_chunk = int(batch_size) * 4 + max(1, int(batch_size) // 4)
+        self.chunk_size = max(int(chunk_size), min_chunk)
         
         # Placeholders
         self.train_dataset: Optional[CropFMIterableDataset] = None
@@ -92,6 +96,7 @@ class CropFMDataModule(LightningDataModule):
             pin_memory=self.pin_memory,
             collate_fn=cropfm_collate_fn,
             persistent_workers=True if self.num_workers > 0 else False,
+            prefetch_factor=2 if self.num_workers > 0 else None,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -103,6 +108,7 @@ class CropFMDataModule(LightningDataModule):
             pin_memory=self.pin_memory,
             collate_fn=cropfm_collate_fn,
             persistent_workers=True if self.num_workers > 0 else False,
+            prefetch_factor=2 if self.num_workers > 0 else None,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -114,4 +120,5 @@ class CropFMDataModule(LightningDataModule):
             pin_memory=self.pin_memory,
             collate_fn=cropfm_collate_fn,
             persistent_workers=True if self.num_workers > 0 else False,
+            prefetch_factor=2 if self.num_workers > 0 else None,
         )

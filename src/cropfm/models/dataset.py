@@ -7,6 +7,22 @@ import random
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
+# Precomputed SatCLIP embeddings for EAM (``analysis/compute_satclip_embeddings.py`` output).
+# Prefer ``satclip_embeddings.npy`` (``analysis/csv_satclip_to_npy.py``) over CSV for speed/RAM.
+# ``dataset.py`` → parents[3] = CropFM repo root.
+_CROPFM_ROOT = Path(__file__).resolve().parents[3]
+_SATCLIP_EMBEDDINGS_NPY = _CROPFM_ROOT / "analysis" / "satclip_embeddings.npy"
+_SATCLIP_EMBEDDINGS_CSV = _CROPFM_ROOT / "analysis" / "satclip_embeddings.csv"
+
+
+def _satclip_embeddings_file() -> Optional[Path]:
+    if _SATCLIP_EMBEDDINGS_NPY.is_file():
+        return _SATCLIP_EMBEDDINGS_NPY
+    if _SATCLIP_EMBEDDINGS_CSV.is_file():
+        return _SATCLIP_EMBEDDINGS_CSV
+    return None
+
+
 class CropFMIterableDataset(IterableDataset):
     """
     Vectorized version of CropFMIterableDataset.
@@ -33,7 +49,7 @@ class CropFMIterableDataset(IterableDataset):
         train_split: float = 0.8,
         val_split: float = 0.1,
         seed: int = 42,
-        shuffle: bool = True
+        shuffle: bool = True,
     ):
         super().__init__()
         self.zarr_path = zarr_path
@@ -42,6 +58,13 @@ class CropFMIterableDataset(IterableDataset):
         self.chunk_size = chunk_size
         self.shuffle = shuffle
         self.seed = seed
+        # Precomputed (N, D) embeddings; row ``i`` = global zarr index ``i`` (see ``satclip_embeddings_io``).
+        self._satclip_emb: Optional[np.ndarray] = None
+        _satclip_path = _satclip_embeddings_file()
+        if _satclip_path is not None:
+            from cropfm.models.utils.satclip_embeddings_io import load_satclip_embedding_matrix
+
+            self._satclip_emb = load_satclip_embedding_matrix(_satclip_path)
 
         # Open root once just to get metadata
         root = zarr.open(self.zarr_path, mode='r')
@@ -57,10 +80,16 @@ class CropFMIterableDataset(IterableDataset):
             self.start_idx, self.end_idx = train_end, val_end
         else:
             self.start_idx, self.end_idx = val_end, total_samples
+
+        if self._satclip_emb is not None and len(self._satclip_emb) < self.end_idx:
+            raise ValueError(
+                f"SatCLIP embedding matrix has {len(self._satclip_emb)} rows but this split "
+                f"uses zarr indices up to {self.end_idx - 1} (end_idx={self.end_idx})."
+            )
         
         # Prepare Normalization Tensors
-        # norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats2.json'
-        norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats_global.json'
+        # norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats_global.json'
+        norm_stats_path = Path(self.zarr_path).parent / 'normalization_stats_europe.json'
         with open(norm_stats_path, 'r') as f:
             stats = json.load(f)
         self.norm_tensors = self._prepare_norm_tensors(stats)
@@ -102,7 +131,15 @@ class CropFMIterableDataset(IterableDataset):
 
         if self.shuffle:
             random.seed(self.seed)
-            random.shuffle(chunk_indices)
+            # Shuffle at super-chunk granularity to keep local contiguous reads.
+            # Full random chunk order creates large seek distances and I/O jitter.
+            block_size_chunks = 32
+            chunk_blocks = [
+                chunk_indices[i : i + block_size_chunks]
+                for i in range(0, len(chunk_indices), block_size_chunks)
+            ]
+            random.shuffle(chunk_blocks)
+            chunk_indices = [c for block in chunk_blocks for c in block]
 
         # 3. Handle Multiprocessing sharding
         if worker_info is not None:
@@ -264,7 +301,14 @@ class CropFMIterableDataset(IterableDataset):
                     ) / self.norm_tensors[mod]['std']
                     
                     static_chunk_data[mod] = coord_data_tensor  # (chunk_len, D)
-            
+
+            satclip_chunk_tensor = None
+            if self._satclip_emb is not None:
+                chunk_idx = np.asarray(chunk, dtype=np.int64)
+                satclip_chunk_tensor = torch.from_numpy(
+                    np.ascontiguousarray(self._satclip_emb[chunk_idx], dtype=np.float32)
+                )
+
             # ===== YIELD INDIVIDUAL SAMPLES FROM PREPROCESSED CHUNK =====
             for i in range(chunk_len):
                 actual_idx = chunk[i]
@@ -301,7 +345,10 @@ class CropFMIterableDataset(IterableDataset):
                             sample[mod] = {
                                 'data': static_chunk_data[mod][i].unsqueeze(0)  # (1, D)
                             }
-                
+
+                if satclip_chunk_tensor is not None:
+                    sample['satclip_embedding'] = {'data': satclip_chunk_tensor[i]}
+
                 yield sample
 
 def cropfm_collate_fn(batch):

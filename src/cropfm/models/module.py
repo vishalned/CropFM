@@ -1,7 +1,6 @@
 """PyTorch Lightning module for CropMAE"""
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from lightning import LightningModule
 from torch.optim import AdamW
@@ -9,7 +8,12 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from omegaconf import DictConfig, OmegaConf
 
 from cropfm.models.arch.mae import CropMAE
-from cropfm.models.utils.losses import compute_losses, aggregate_losses
+from cropfm.models.utils.losses import (
+    _satclip_embedding_from_batch,
+    aggregate_losses,
+    compute_losses,
+    get_eam_loss_module,
+)
 
 
 class CropMAEModule(LightningModule):
@@ -54,6 +58,42 @@ class CropMAEModule(LightningModule):
         self.equal_weighting = loss_aggregation.get('equal_weighting', True)
         self.loss_weights = loss_aggregation.get('weights', None)
 
+    def _log_auxiliary_metrics(
+        self,
+        output: dict,
+        batch: dict,
+        batch_idx: int,
+        losses: dict,
+    ) -> None:
+        """Whether contrastive / EAM contributed to this step; optional EAM align vs shatter."""
+        if batch_idx % 50 != 0:
+            return
+        c_active = float(
+            'contrastive' in losses and len(losses.get('contrastive', {})) > 0
+        )
+        self.log("diag/contrastive_active", c_active, on_step=True, on_epoch=False, logger=True)
+
+        s_eam = _satclip_embedding_from_batch(batch)
+        eam_ok = (
+            s_eam is not None
+            and 'visual_embedding' in output
+            and 'worldcereal_cropmask' in batch
+            and 'eam' in losses
+            and len(losses.get('eam', {})) > 0
+        )
+        self.log("diag/eam_active", float(eam_ok), on_step=True, on_epoch=False, logger=True)
+
+        # Extra O(B²) pass for interpretability only (rarely)
+        if batch_idx % 200 == 0 and eam_ok:
+            with torch.no_grad():
+                _, align, shatter = get_eam_loss_module().compute_loss_components(
+                    output['visual_embedding'].detach(),
+                    s_eam.detach(),
+                    batch['worldcereal_cropmask']['data'],
+                )
+            self.log("eam/align", align, on_step=True, on_epoch=False, logger=True)
+            self.log("eam/shatter", shatter, on_step=True, on_epoch=False, logger=True)
+
     def forward(self, x: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """
         Forward pass for CropMAE
@@ -75,9 +115,10 @@ class CropMAEModule(LightningModule):
             Loss
         """
         output = self.model(batch)
-        
+
         # Compute all losses from output
         losses = compute_losses(output, batch)
+        self._log_auxiliary_metrics(output, batch, batch_idx, losses)
         
         # Log individual losses (grouped by loss type)
         for loss_type, loss_dict in losses.items():

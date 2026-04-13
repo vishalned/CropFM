@@ -7,7 +7,7 @@ model:
   _target_: cropfm.models.arch.mae_worldcereal_dual.CropMAEWorldcerealDual
   
   # WorldCereal-specific parameters
-  use_cls_token: true  # Use CLS token for global representation (if false, uses mean pooling)
+  use_cls_token: false  # Use CLS token for global representation (if false, uses mean pooling)
   
   # Loss aggregation configuration
   loss_aggregation:

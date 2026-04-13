@@ -16,6 +16,7 @@ from cropfm.models.arch.mae import (
     ModalityTokenizer,
 )
 
+from cropfm.models.arch.mae import AUXILIARY_BATCH_KEYS
 
 class EncoderWithCLS(Encoder):
     """Encoder with optional CLS token support"""
@@ -121,12 +122,12 @@ class CropMAEWorldcerealDual(CropMAE):
         # Filter worldcereal from input modalities (they are targets, not inputs)
         worldcereal_modalities = ['worldcereal_cropmask', 'worldcereal_cropcalendar']
         input_modality_dims = {k: v for k, v in modality_dims.items() 
-                              if k not in worldcereal_modalities}
+                              if k not in worldcereal_modalities and k not in AUXILIARY_BATCH_KEYS}
         
         # Temporarily modify modalities dict for parent init
         temp_modalities = modalities.copy()
         temp_modalities['modality_list'] = {k: v for k, v in modalities['modality_list'].items() 
-                                            if k not in worldcereal_modalities}
+                                            if k not in worldcereal_modalities and k not in AUXILIARY_BATCH_KEYS}
         
         # Initialize parent with filtered modalities
         super().__init__(
@@ -196,7 +197,7 @@ class CropMAEWorldcerealDual(CropMAE):
 
         # Filter worldcereal from inputs (they are targets, not inputs)
         worldcereal_modalities = ['worldcereal_cropmask', 'worldcereal_cropcalendar']
-        input_x = {k: v for k, v in x.items() if k not in worldcereal_modalities}
+        input_x = {k: v for k, v in x.items() if k not in worldcereal_modalities and k not in AUXILIARY_BATCH_KEYS}
         
         # Call parent forward with filtered inputs to get base outputs
         output = super().forward(input_x, mask)

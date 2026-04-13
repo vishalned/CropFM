@@ -7,7 +7,7 @@ model:
   _target_: cropfm.models.arch.mae_worldcereal_contrastive.CropMAEWorldcerealContrastive
   
   # WorldCereal-specific parameters
-  use_cls_token: true  # Use CLS token for global representation (if false, uses mean pooling)
+  use_cls_token: false  # Use CLS token for global representation (if false, uses mean pooling)
   projection_dim: 128  # Dimension for contrastive projection MLP
   
   # Loss aggregation configuration

@@ -6,6 +6,8 @@ from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 from lightning.pytorch.loggers import WandbLogger
 from omegaconf import DictConfig, OmegaConf
 from hydra.utils import instantiate
+import torch
+
 
 from cropfm.models.arch.mae import CropMAE
 from cropfm.models.module import CropMAEModule
@@ -16,6 +18,8 @@ from cropfm.models.utils.callbacks import configure_callbacks
 @hydra.main(version_base=None, config_path="../../../configs/models", config_name="base.pretrain")
 def main(cfg: DictConfig) -> None:
     """Main training function with Hydra configuration"""
+    torch.set_float32_matmul_precision("medium")
+
     # print("Configuration:")
     # print(OmegaConf.to_yaml(cfg))
 
@@ -24,11 +28,6 @@ def main(cfg: DictConfig) -> None:
     # Keep cfg.model as DictConfig so nested configs (masking, attention) remain DictConfig
 
     arch = instantiate(cfg.model, modalities=cfg.data.modalities)
-
-    # arch = CropMAE(
-    #     modalities=cfg.data.modalities,
-    #     **cfg.model
-    # )
 
     module = CropMAEModule(
         model=arch,
@@ -46,6 +45,7 @@ def main(cfg: DictConfig) -> None:
         **cfg.trainer,
         callbacks=callbacks["callbacks"],
         logger=callbacks["loggers"],
+        profiler="simple",
     )
 
     # Train model

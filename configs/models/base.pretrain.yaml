@@ -40,7 +40,7 @@ trainer:
   devices: 1
   num_nodes: 1
   accelerator: gpu
-  strategy: ddp_find_unused_parameters_true
+  strategy: auto
   accumulate_grad_batches: 8
   min_epochs: 1
   max_epochs: 40
@@ -70,15 +70,16 @@ model:
   
   # Masking configuration using Hydra _target_ instantiation
   masking:
-    _target_: cropfm.models.arch.masking.RandomMasking
+    # _target_: cropfm.models.arch.masking.RandomMasking
+    _target_: cropfm.models.arch.masking.StructuredMasking
     mask_ratio: ${model.mask_ratio}
     # Alternative: StructuredMasking that randomly selects one of 4 strategies
     # _target_: cropfm.models.arch.masking.StructuredMasking
     # mask_ratio: ${model.mask_ratio}
-    # modality_mask_ratio: 0.45  # Ratio of modalities to mask
-    # timestep_mask_ratio: 0.5   # Ratio of timesteps to mask per modality
-    # contiguous_pattern: ["monthly", "first_half", "second_half"]  # Multiple patterns
-    # strategy_weights: [0.25, 0.25, 0.25, 0.25]  # [random, modality, timesteps, contiguous]
+    modality_mask_ratio: 0.45  # Ratio of modalities to mask
+    timestep_mask_ratio: 0.5   # Ratio of timesteps to mask per modality
+    contiguous_pattern: ["monthly", "first_half", "second_half"]  # Multiple patterns
+    strategy_weights: [0.25, 0.25, 0.25, 0.25]  # [random, modality, timesteps, contiguous]
   
   # Attention configuration using Hydra _target_ instantiation
   encoder_attention:
@@ -117,8 +118,8 @@ data:
   num_workers: 4
 
   # dataset parameters
-  # zarr_path: "${oc.env:CROPFM_DATA_DIR}/europe_data_1200_merged_cleaned2_rechunked.zarr"
-  zarr_path: "${oc.env:CROPFM_DATA_DIR}/global_data_1200_merged_cleaned_rechunked.zarr"
+  zarr_path: "${oc.env:CROPFM_DATA_DIR}/europe_data_1200_merged_cleaned2_rechunked.zarr"
+  # zarr_path: "${oc.env:CROPFM_DATA_DIR}/global_data_1200_merged_cleaned_rechunked.zarr"
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1

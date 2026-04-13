@@ -1,0 +1,6 @@
+# Encoder-only backbone + EAM (SatCLIP reference embeddings from ``analysis/satclip_embeddings.csv``; path hardcoded in dataset)
+defaults:
+  - base.pretrain
+
+model:
+  _target_: cropfm.models.arch.no_mae_contrastive_loss.CropFMNoMAEContrastiveLoss

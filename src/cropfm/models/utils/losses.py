@@ -1,8 +1,24 @@
 """Loss computation functions for CropFM training"""
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Any
+from typing import Any, Dict, Optional
+
+
+def _satclip_embedding_from_batch(batch: Dict[str, Any]) -> Optional[torch.Tensor]:
+    """Read precomputed SatCLIP reference embeddings for EAM from the batch (dataloader).
+
+    Expected shape ``batch['satclip_embedding']['data']`` as ``(B, D)``, or a bare tensor.
+    """
+    if "satclip_embedding" not in batch:
+        return None
+    v = batch["satclip_embedding"]
+    if isinstance(v, torch.Tensor):
+        return v
+    if isinstance(v, dict) and "data" in v:
+        return v["data"]
+    return None
 
 
 def compute_losses(
@@ -52,7 +68,21 @@ def compute_losses(
         )
         if len(contrastive_losses) > 0:
             losses['contrastive'] = contrastive_losses
-    
+
+    # EAM on encoder-only path (visual_embedding); MAE+contrastive path above is unchanged
+    if 'visual_embedding' in output and 'worldcereal_cropmask' in batch:
+        s_eam = _satclip_embedding_from_batch(batch)
+        if s_eam is not None:
+            eam_losses = compute_eam_loss(
+                z=output['visual_embedding'],
+                s=s_eam,
+                crop_mask_labels=batch['worldcereal_cropmask']['data'],
+            )
+            if len(eam_losses) > 0:
+                losses['eam'] = eam_losses
+
+        else:
+            raise ValueError("SatCLIP embeddings not found in batch")
     return losses
 
 
@@ -294,6 +324,153 @@ def compute_contrastive_loss(
     return {'contrastive': contrastive_loss}
 
 
+class EAMLoss(nn.Module):
+    """Environmentally Adaptive Manifold Loss (EAM).
+
+    Aligns visual Euclidean distances with scaled SatCLIP distances for same-crop
+    pairs and pushes apart different-crop pairs via a hinge on visual distance.
+
+    Crop masks are expected as integers (e.g. 0 = no/other crop, 1 = maize, 2–3 = cereals).
+    By default, **alignment** only uses same-label pairs where **both** samples have a
+    positive crop label (``label > 0``), so class 0 does not contribute to alignment.
+    **Shatter** still uses all upper-triangle pairs with different labels, including
+    pairs involving 0 (e.g. 0 vs 1), so no-crop can act as a negative class relative
+    to maize/cereals.
+
+    Args:
+        tau: Scales SatCLIP distance in the alignment term.
+        M: Margin for the shatter (hinge) term on visual distance.
+        lambda_weight: Weight for the shatter term relative to alignment.
+        normalize: If True, L2-normalize visual embeddings before pairwise distances.
+        normalize_reference: If True, L2-normalize reference embeddings ``s`` (e.g. SatCLIP)
+            before ``dist_s``. **Strongly recommended:** otherwise ``dist_s`` can be orders
+            of magnitude larger than ``dist_z`` and the alignment term explodes.
+        align_only_both_positive_crop: If True, alignment term only includes same-crop
+            pairs with both labels strictly positive (excludes label 0).
+    """
+
+    def __init__(
+        self,
+        tau: float = 1.0,
+        M: float = 1.0,
+        lambda_weight: float = 1.0,
+        normalize: bool = True,
+        normalize_reference: bool = True,
+        align_only_both_positive_crop: bool = True,
+    ):
+        super().__init__()
+        self.tau = tau
+        self.M = M
+        self.lambda_weight = lambda_weight
+        self.normalize = normalize
+        self.normalize_reference = normalize_reference
+        self.align_only_both_positive_crop = align_only_both_positive_crop
+
+    def forward(
+        self,
+        z: torch.Tensor,
+        s: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> torch.Tensor:
+        total, _, _ = self.compute_loss_components(z, s, labels)
+        return total
+
+    def compute_loss_components(
+        self,
+        z: torch.Tensor,
+        s: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Returns (total_loss, mean_align, mean_shatter)."""
+        device = z.device
+        dtype = z.dtype
+
+        lab = labels
+        if lab.dim() > 1 and lab.shape[-1] >= 2:
+            lab = lab[:, 1]
+        elif lab.dim() > 1:
+            lab = lab.squeeze(-1)
+        if lab.dtype.is_floating_point:
+            valid = ~torch.isnan(lab)
+            lab = lab.long()
+        else:
+            valid = torch.ones(lab.shape[0], dtype=torch.bool, device=device)
+            lab = lab.long()
+        labels = lab
+
+        B = z.shape[0]
+        if B < 2:
+            zero = torch.zeros((), device=device, dtype=dtype, requires_grad=z.requires_grad)
+            return zero, zero, zero
+
+        if self.normalize:
+            z = F.normalize(z, p=2, dim=1)
+        if self.normalize_reference:
+            s = F.normalize(s, p=2, dim=1)
+
+        dist_z = torch.cdist(z, z, p=2)
+        dist_s = torch.cdist(s, s, p=2)
+
+        labels_2d = labels.unsqueeze(0).expand(B, B)
+        labels_2d_t = labels.unsqueeze(1).expand(B, B)
+        same = labels_2d == labels_2d_t
+        diff = ~same
+
+        diag = torch.eye(B, dtype=torch.bool, device=device)
+        triu = torch.triu(torch.ones(B, B, dtype=torch.bool, device=device), diagonal=1)
+
+        valid_pair = valid.unsqueeze(0) & valid.unsqueeze(1)
+        both_positive_crop = (labels_2d > 0) & (labels_2d_t > 0)
+        if self.align_only_both_positive_crop:
+            same_pairs_align = same & ~diag & triu & valid_pair & both_positive_crop
+        else:
+            same_pairs_align = same & ~diag & triu & valid_pair
+        diff_pairs = diff & ~diag & triu & valid_pair
+
+        # Must stay in the autograd graph: plain ``torch.zeros`` breaks backward when this
+        # is the only loss term (e.g. empty align + empty shatter masks on a batch).
+        z_zero = z.sum() * 0.0
+
+        if same_pairs_align.any():
+            align = (
+                (dist_z[same_pairs_align] - self.tau * dist_s[same_pairs_align]) ** 2
+            ).mean()
+        else:
+            align = z_zero
+
+        if diff_pairs.any():
+            shatter = F.relu(self.M - dist_z[diff_pairs]).mean()
+        else:
+            shatter = z_zero
+
+        total = align + self.lambda_weight * shatter
+
+        return total, align, shatter
+
+
+_default_eam: EAMLoss | None = None
+
+
+def get_eam_loss_module() -> EAMLoss:
+    """Shared :class:`EAMLoss` used for training and optional diagnostics."""
+    global _default_eam
+    if _default_eam is None:
+        _default_eam = EAMLoss()
+    return _default_eam
+
+
+def compute_eam_loss(
+    z: torch.Tensor,
+    s: torch.Tensor,
+    crop_mask_labels: torch.Tensor,
+) -> Dict[str, torch.Tensor]:
+    """EAM between visual embeddings ``z`` and reference embeddings ``s`` (e.g. SatCLIP), with crop labels."""
+    if z.shape[0] != s.shape[0]:
+        return {}
+    loss = get_eam_loss_module()(z, s, crop_mask_labels)
+    return {'eam': loss}
+
+
 def aggregate_losses(
     losses: Dict[str, Dict[str, torch.Tensor]],
     equal_weighting: bool = True,
@@ -339,7 +516,11 @@ def aggregate_losses(
         return torch.tensor(0.0, device=device, requires_grad=True)
     
     if equal_weighting:
-        # Simple average
+        # Simple average over **all** scalar losses (every modality + every task).
+        # Reconstruction MSE, cross-entropy, InfoNCE, and EAM live on different scales;
+        # the mean can swing wildly (e.g. 20 vs 1000) as different terms dominate or
+        # as batch composition changes. Prefer ``equal_weighting: false`` with explicit
+        # ``weights`` per loss group, or watch ``train_loss_<group>_*`` separately.
         loss_values = list(flattened_losses.values())
         return sum(loss_values) / len(loss_values)
     else:
