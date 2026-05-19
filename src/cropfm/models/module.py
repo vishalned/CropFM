@@ -128,7 +128,7 @@ class CropMAEModule(LightningModule):
                     loss_value,
                     on_step=True,
                     on_epoch=True,
-                    prog_bar=False,
+                    prog_bar=True,
                     logger=True,
                 )
         

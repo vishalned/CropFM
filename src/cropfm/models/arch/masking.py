@@ -140,18 +140,25 @@ class StructuredMasking(nn.Module):
         """
         # Randomly select strategy (per forward call, same for entire batch)
         strategy_idx = self._select_strategy()
-        
+
         if strategy_idx == 0:
-            return self._random_mask(x, mask)
+            _, strategy_mask, _, _ = self._random_mask(x, mask)
         elif strategy_idx == 1:
-            return self._modality_mask(x, mask, modality_boundaries)
+            _, strategy_mask, _, _ = self._modality_mask(x, mask, modality_boundaries)
         elif strategy_idx == 2:
-            return self._random_timesteps_mask(x, mask, modality_boundaries)
+            _, strategy_mask, _, _ = self._random_timesteps_mask(x, mask, modality_boundaries)
         elif strategy_idx == 3:
-            return self._contiguous_timesteps_mask(x, mask, modality_boundaries, week_indices, is_temporal)
+            _, strategy_mask, _, _ = self._contiguous_timesteps_mask(
+                x, mask, modality_boundaries, week_indices, is_temporal
+            )
         else:
             # Fallback to random masking
-            return self._random_mask(x, mask)
+            _, strategy_mask, _, _ = self._random_mask(x, mask)
+
+        # Enforce configured global mask ratio for every strategy:
+        # if a structured strategy under/over-masks, top up or trim at random.
+        strategy_mask = self._enforce_mask_ratio(strategy_mask)
+        return self._build_mask_outputs(x, strategy_mask)
     
     def _select_strategy(self) -> int:
         """Randomly select strategy index based on weights"""
@@ -162,6 +169,42 @@ class StructuredMasking(nn.Module):
             if r < cumsum:
                 return i
         return 0  # Fallback to first strategy
+
+    def _enforce_mask_ratio(self, mask: torch.Tensor) -> torch.Tensor:
+        """Adjust per-sample mask to exactly match configured ``mask_ratio``."""
+        B, N = mask.shape
+        target_masked = int(N * self.mask_ratio)
+
+        if target_masked <= 0:
+            return torch.zeros_like(mask, dtype=torch.bool)
+        if target_masked >= N:
+            return torch.ones_like(mask, dtype=torch.bool)
+
+        adjusted = mask.clone()
+        for b in range(B):
+            current_masked = int(adjusted[b].sum().item())
+            delta = target_masked - current_masked
+            if delta == 0:
+                continue
+
+            if delta > 0:
+                # Under-masked: add random masked tokens from currently unmasked positions.
+                candidates = torch.where(~adjusted[b])[0]
+                if candidates.numel() == 0:
+                    continue
+                add_k = min(delta, candidates.numel())
+                perm = torch.randperm(candidates.numel(), device=mask.device)[:add_k]
+                adjusted[b, candidates[perm]] = True
+            else:
+                # Over-masked: unmask random tokens from currently masked positions.
+                candidates = torch.where(adjusted[b])[0]
+                if candidates.numel() == 0:
+                    continue
+                remove_k = min(-delta, candidates.numel())
+                perm = torch.randperm(candidates.numel(), device=mask.device)[:remove_k]
+                adjusted[b, candidates[perm]] = False
+
+        return adjusted
     
     def _build_mask_outputs(
         self,

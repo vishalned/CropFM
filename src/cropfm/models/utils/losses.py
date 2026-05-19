@@ -242,8 +242,8 @@ def compute_worldcereal_loss(
         # Compute MSE only for valid samples (excludes "other"/no crop)
         if valid_mask.sum() > 0:
             loss = F.mse_loss(
-                crop_cal_pred[valid_mask],
-                crop_cal_target[valid_mask]
+                crop_cal_pred[valid_mask] / 365.0, # we add normalization to keep the loss value smaller 
+                crop_cal_target[valid_mask] / 365.0 # we add normalization to keep the loss value smaller 
             )
             losses['crop_calendar'] = loss
     
@@ -303,7 +303,20 @@ def compute_contrastive_loss(
     # Create mask for positive pairs (same crop type, excluding self)
     labels_expanded = valid_labels.unsqueeze(1)  # (valid_B, 1)
     labels_expanded_T = valid_labels.unsqueeze(0)  # (1, valid_B)
+
+    ##### previous implementation #####
     positive_mask = (labels_expanded == labels_expanded_T).float()  # (valid_B, valid_B)
+
+    ##### new implementation #####
+    # 1. Check if labels match across the batch
+    match_mask = (labels_expanded == labels_expanded_T)
+
+    # 2. Check where labels are NOT "others" (class 0)
+    not_others_mask = (labels_expanded > 0) & (labels_expanded_T > 0)
+
+    # 3. Combine them: true positives must match AND must be valid crops
+    positive_mask = (match_mask & not_others_mask).float()
+
     
     # Remove diagonal (self-similarity)
     eye_mask = torch.eye(valid_B, device=device)
@@ -311,12 +324,36 @@ def compute_contrastive_loss(
     
     # Vectorized InfoNCE: -log( sum_p exp(sim_i,p) / sum_{j!=i} exp(sim_i,j) )
     exp_sim = torch.exp(sim_matrix)
-    denominator = (exp_sim * (1 - eye_mask)).sum(dim=1)  # (valid_B,)
-    numerator = (exp_sim * positive_mask).sum(dim=1)  # (valid_B,)
-    loss_per_sample = -torch.log(numerator / denominator.clamp(min=1e-8) + 1e-8)
+    ##### previous implementation #####
+    # denominator = (exp_sim * (1 - eye_mask)).sum(dim=1)  # (valid_B,)
+    # numerator = (exp_sim * positive_mask).sum(dim=1)  # (valid_B,)
+    # loss_per_sample = -torch.log(numerator / denominator.clamp(min=1e-8) + 1e-8)
+
+
+    #### new implementation #####
+    # 1. Compute the probability matrix for EVERY pair in the grid
+    # (Divide each exponentiated similarity by its total row denominator)
+    denominator = (exp_sim * (1 - eye_mask)).sum(dim=1, keepdim=True)
+    pair_probabilities = exp_sim / denominator.clamp(min=1e-8)
+
+    # 2. Compute the negative log-likelihood for all pairs, keeping stability intact
+    log_probabilities = -torch.log(pair_probabilities + 1e-8)
+
+    # 3. Isolate only the true positive pairs via your corrected positive mask
+    positive_losses = log_probabilities * positive_mask
+
+    # 4. Count how many positive crop matches each sample actually found in this batch
+    num_positives_per_sample = positive_mask.sum(dim=1)
+
+    # 5. Avoid division-by-zero for samples that have no matching crops in the batch
+    has_positives = num_positives_per_sample > 0
+    loss_per_sample = torch.zeros_like(num_positives_per_sample)
+
+    # 6. Average the loss per sample by dividing by its true positive count
+    loss_per_sample[has_positives] = positive_losses[has_positives].sum(dim=1) / num_positives_per_sample[has_positives]
     
     # Only average over samples that have at least one positive
-    has_positives = positive_mask.sum(dim=1) > 0
+    # has_positives = positive_mask.sum(dim=1) > 0
     if has_positives.sum() == 0:
         return {}
     
