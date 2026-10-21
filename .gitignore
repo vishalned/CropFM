@@ -13,3 +13,6 @@ experiments/
 .DS_Store
 
 analysis/
+# secrets
+ee_key*.json
+*_key.json
